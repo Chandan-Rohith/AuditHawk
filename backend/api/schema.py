@@ -1,5 +1,6 @@
 import graphene
 from datetime import datetime
+from .csv_parser import parse_transaction_csv, CSVParserError
 
 # ============================================
 # GraphQL Types (Business Entities)
@@ -164,28 +165,69 @@ class UploadAuditFileResponse(graphene.ObjectType):
 
 
 class UploadAuditFile(graphene.Mutation):
+    """
+    Upload and parse a CSV file containing financial transactions.
+    This is the ONLY way to upload data - no REST endpoints are used.
+    """
     class Arguments:
         file_name = graphene.String(required=True)
+        csv_content = graphene.String(required=True)
 
     Output = UploadAuditFileResponse
 
-    def mutate(root, info, file_name):
-        new_report = {
-            "id": str(len(MOCK_AUDIT_REPORTS) + 1),
-            "file_name": file_name,
-            "uploaded_at": datetime.utcnow().isoformat(),
-            "total_transactions": 5000,
-            "flagged_count": 20,
-            "status": "processing"
-        }
-
-        MOCK_AUDIT_REPORTS.append(new_report)
-
-        return UploadAuditFileResponse(
-            success=True,
-            message="File upload initiated (use /api/upload-csv/ for real uploads)",
-            report=AuditReportType(**new_report)
-        )
+    def mutate(root, info, file_name, csv_content):
+        """
+        Parse CSV content, validate it, and create an audit report.
+        
+        Args:
+            file_name: Name of the CSV file (e.g., "transactions.csv")
+            csv_content: Complete CSV file content as a string
+            
+        Returns:
+            UploadAuditFileResponse with success status, message, and report
+        """
+        try:
+            # Parse and validate CSV content using csv_parser
+            transactions, summary = parse_transaction_csv(csv_content)
+            
+            # Create new audit report
+            report_id = str(len(MOCK_AUDIT_REPORTS) + 1)
+            new_report = {
+                "id": report_id,
+                "file_name": file_name,
+                "uploaded_at": datetime.utcnow().isoformat(),
+                "total_transactions": summary['total_transactions'],
+                "flagged_count": 0,  # Will be updated after ML analysis
+                "status": "processing"
+            }
+            
+            # Store report and transactions in memory
+            MOCK_AUDIT_REPORTS.append(new_report)
+            MOCK_TRANSACTIONS[report_id] = transactions
+            
+            # Initialize empty flagged transactions list
+            MOCK_FLAGGED_TRANSACTIONS[report_id] = []
+            
+            return UploadAuditFileResponse(
+                success=True,
+                message=f"Successfully uploaded and parsed {summary['total_transactions']} transactions",
+                report=AuditReportType(**new_report)
+            )
+            
+        except CSVParserError as e:
+            # Handle CSV parsing/validation errors
+            return UploadAuditFileResponse(
+                success=False,
+                message=f"CSV parsing error: {str(e)}",
+                report=None
+            )
+        except Exception as e:
+            # Handle unexpected errors
+            return UploadAuditFileResponse(
+                success=False,
+                message=f"Unexpected error: {str(e)}",
+                report=None
+            )
 
 
 class UpdateTransactionDecisionResponse(graphene.ObjectType):
