@@ -122,7 +122,12 @@ MOCK_FLAGGED_TRANSACTIONS = {
     ]
 }
 
-
+class DashboardSummaryType(graphene.ObjectType):
+    total_reports = graphene.Int()
+    total_transactions = graphene.Int()
+    total_flagged = graphene.Int()
+    processing_count = graphene.Int()
+    completed_count = graphene.Int()
 # ============================================
 # Query Resolvers
 # ============================================
@@ -141,6 +146,7 @@ class Query(graphene.ObjectType):
         FlaggedTransactionType,
         report_id=graphene.ID(required=True)
     )
+    dashboard_summary = graphene.Field(DashboardSummaryType)
 
     def resolve_audit_reports(root, info):
         return [AuditReportType(**report) for report in MOCK_AUDIT_REPORTS]
@@ -152,6 +158,34 @@ class Query(graphene.ObjectType):
     def resolve_flagged_transactions(root, info, report_id):
         transactions = MOCK_FLAGGED_TRANSACTIONS.get(report_id, [])
         return [FlaggedTransactionType(**txn) for txn in transactions]
+
+    def resolve_dashboard_summary(root, info):
+        total_reports = len(MOCK_AUDIT_REPORTS)
+
+        total_transactions = sum(
+            report["total_transactions"] for report in MOCK_AUDIT_REPORTS
+        )
+
+        total_flagged = sum(
+            report["flagged_count"] for report in MOCK_AUDIT_REPORTS
+        )
+
+        processing_count = sum(
+            1 for report in MOCK_AUDIT_REPORTS if report["status"] == "processing"
+        )
+
+        completed_count = sum(
+            1 for report in MOCK_AUDIT_REPORTS if report["status"] == "completed"
+        )
+
+        return DashboardSummaryType(
+            total_reports=total_reports,
+            total_transactions=total_transactions,
+            total_flagged=total_flagged,
+            processing_count=processing_count,
+            completed_count=completed_count
+        )
+
 
 
 # ============================================
