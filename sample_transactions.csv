@@ -1,0 +1,11 @@
+transaction_id,date,amount,merchant,category,account_id
+TXN-2026-00001,2026-02-01T09:30:00,250.50,Amazon,Online Shopping,ACC-001
+TXN-2026-00002,2026-02-01T10:15:00,1500.00,Dell Technologies,Electronics,ACC-002
+TXN-2026-00003,2026-02-01T14:22:00,85.75,Starbucks,Food & Beverage,ACC-001
+TXN-2026-00004,2026-02-01T23:45:00,15000.00,Midnight Wire Transfer Co,Wire Transfer,ACC-003
+TXN-2026-00005,2026-02-02T08:10:00,450.00,Office Depot,Office Supplies,ACC-002
+TXN-2026-00006,2026-02-02T11:30:00,75000.00,Suspicious Merchant LLC,Unknown,ACC-004
+TXN-2026-00007,2026-02-02T15:20:00,125.00,Walmart,Groceries,ACC-001
+TXN-2026-00008,2026-02-02T16:45:00,3200.00,Apple Store,Electronics,ACC-002
+TXN-2026-00009,2026-02-03T02:15:00,8500.50,Offshore Transfers Inc,Wire Transfer,ACC-003
+TXN-2026-00010,2026-02-03T12:00:00,95.25,Target,Retail,ACC-001

@@ -5,6 +5,17 @@ from datetime import datetime
 # GraphQL Types (Business Entities)
 # ============================================
 
+class TransactionType(graphene.ObjectType):
+    """Represents a single transaction from CSV"""
+    id = graphene.ID()
+    transaction_id = graphene.String()
+    date = graphene.String()
+    amount = graphene.Float()
+    merchant = graphene.String()
+    category = graphene.String()
+    account_id = graphene.String()
+
+
 class AuditReportType(graphene.ObjectType):
     """Represents an uploaded audit file and its processing status"""
     id = graphene.ID()
@@ -22,11 +33,45 @@ class FlaggedTransactionType(graphene.ObjectType):
     amount = graphene.Float()
     risk_score = graphene.Float()
     decision = graphene.String()
+    explanation = graphene.String()  # XAI reasoning
 
 
 # ============================================
 # Mock Data (In-Memory Storage)
 # ============================================
+
+# Store all transactions by report_id
+MOCK_TRANSACTIONS = {
+    "1": [
+        {
+            "id": "1001",
+            "transaction_id": "TXN-2026-00542",
+            "date": "2026-01-15T14:30:00",
+            "amount": 45000.00,
+            "merchant": "Global Tech Supplies",
+            "category": "Electronics",
+            "account_id": "ACC-001"
+        },
+        {
+            "id": "1002",
+            "transaction_id": "TXN-2026-00543",
+            "date": "2026-01-15T15:20:00",
+            "amount": 250.00,
+            "merchant": "Office Depot",
+            "category": "Office Supplies",
+            "account_id": "ACC-002"
+        },
+        {
+            "id": "1003",
+            "transaction_id": "TXN-2026-00544",
+            "date": "2026-01-15T16:10:00",
+            "amount": 8500.50,
+            "merchant": "Midnight Transfers LLC",
+            "category": "Wire Transfer",
+            "account_id": "ACC-003"
+        }
+    ]
+}
 
 MOCK_AUDIT_REPORTS = [
     {
@@ -62,37 +107,16 @@ MOCK_FLAGGED_TRANSACTIONS = {
             "transaction_id": "TXN-2026-00542",
             "amount": 45000.00,
             "risk_score": 0.92,
-            "decision": "review_required"
+            "decision": "review_required",
+            "explanation": "High amount ($45,000) + unusual merchant category + amount is 3.2 standard deviations above mean"
         },
         {
             "id": "102",
-            "transaction_id": "TXN-2026-01203",
+            "transaction_id": "TXN-2026-00544",
             "amount": 8500.50,
             "risk_score": 0.78,
-            "decision": "review_required"
-        },
-        {
-            "id": "103",
-            "transaction_id": "TXN-2026-02134",
-            "amount": 120000.00,
-            "risk_score": 0.95,
-            "decision": "escalate"
-        }
-    ],
-    "2": [
-        {
-            "id": "201",
-            "transaction_id": "TXN-2025-12890",
-            "amount": 32000.00,
-            "risk_score": 0.85,
-            "decision": "review_required"
-        },
-        {
-            "id": "202",
-            "transaction_id": "TXN-2025-13421",
-            "amount": 15000.00,
-            "risk_score": 0.72,
-            "decision": "monitor"
+            "decision": "review_required",
+            "explanation": "Transaction at midnight (02:15 AM) + new merchant + high amount"
         }
     ]
 }
@@ -104,29 +128,123 @@ MOCK_FLAGGED_TRANSACTIONS = {
 
 class Query(graphene.ObjectType):
     """Root query for AuditHawk GraphQL API"""
-    
-    # Health check
+
     hello = graphene.String(default_value="Hello AuditHawk!")
-    
-    # Business queries
+
     audit_reports = graphene.List(AuditReportType)
+    transactions = graphene.List(
+        TransactionType,
+        report_id=graphene.ID(required=True)
+    )
     flagged_transactions = graphene.List(
         FlaggedTransactionType,
         report_id=graphene.ID(required=True)
     )
-    
+
     def resolve_audit_reports(root, info):
-        """Returns all audit reports"""
         return [AuditReportType(**report) for report in MOCK_AUDIT_REPORTS]
-    
+
+    def resolve_transactions(root, info, report_id):
+        transactions = MOCK_TRANSACTIONS.get(report_id, [])
+        return [TransactionType(**txn) for txn in transactions]
+
     def resolve_flagged_transactions(root, info, report_id):
-        """Returns flagged transactions for a specific audit report"""
         transactions = MOCK_FLAGGED_TRANSACTIONS.get(report_id, [])
         return [FlaggedTransactionType(**txn) for txn in transactions]
+
+
+# ============================================
+# Mutation Types
+# ============================================
+
+class UploadAuditFileResponse(graphene.ObjectType):
+    success = graphene.Boolean()
+    message = graphene.String()
+    report = graphene.Field(AuditReportType)
+
+
+class UploadAuditFile(graphene.Mutation):
+    class Arguments:
+        file_name = graphene.String(required=True)
+
+    Output = UploadAuditFileResponse
+
+    def mutate(root, info, file_name):
+        new_report = {
+            "id": str(len(MOCK_AUDIT_REPORTS) + 1),
+            "file_name": file_name,
+            "uploaded_at": datetime.utcnow().isoformat(),
+            "total_transactions": 5000,
+            "flagged_count": 20,
+            "status": "processing"
+        }
+
+        MOCK_AUDIT_REPORTS.append(new_report)
+
+        return UploadAuditFileResponse(
+            success=True,
+            message="File upload initiated (use /api/upload-csv/ for real uploads)",
+            report=AuditReportType(**new_report)
+        )
+
+
+class UpdateTransactionDecisionResponse(graphene.ObjectType):
+    success = graphene.Boolean()
+    message = graphene.String()
+    transaction = graphene.Field(FlaggedTransactionType)
+
+
+class UpdateTransactionDecision(graphene.Mutation):
+    """Update the decision on a flagged transaction (approve/reject/escalate)"""
+    
+    class Arguments:
+        report_id = graphene.ID(required=True)
+        transaction_id = graphene.String(required=True)
+        decision = graphene.String(required=True)  # approved, rejected, escalate
+    
+    Output = UpdateTransactionDecisionResponse
+    
+    def mutate(root, info, report_id, transaction_id, decision):
+        # Validate decision
+        valid_decisions = ['approved', 'rejected', 'escalate', 'review_required', 'monitor']
+        if decision not in valid_decisions:
+            return UpdateTransactionDecisionResponse(
+                success=False,
+                message=f"Invalid decision. Must be one of: {', '.join(valid_decisions)}",
+                transaction=None
+            )
+        
+        # Find the flagged transaction
+        flagged_txns = MOCK_FLAGGED_TRANSACTIONS.get(report_id, [])
+        transaction = None
+        
+        for txn in flagged_txns:
+            if txn['transaction_id'] == transaction_id:
+                txn['decision'] = decision
+                transaction = txn
+                break
+        
+        if not transaction:
+            return UpdateTransactionDecisionResponse(
+                success=False,
+                message=f"Transaction {transaction_id} not found in report {report_id}",
+                transaction=None
+            )
+        
+        return UpdateTransactionDecisionResponse(
+            success=True,
+            message=f"Transaction decision updated to '{decision}'",
+            transaction=FlaggedTransactionType(**transaction)
+        )
+
+
+class Mutation(graphene.ObjectType):
+    upload_audit_file = UploadAuditFile.Field()
+    update_transaction_decision = UpdateTransactionDecision.Field()
 
 
 # ============================================
 # Schema Export
 # ============================================
 
-schema = graphene.Schema(query=Query)
+schema = graphene.Schema(query=Query, mutation=Mutation)
