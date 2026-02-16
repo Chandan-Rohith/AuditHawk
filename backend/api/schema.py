@@ -1,6 +1,9 @@
 import graphene
 from datetime import datetime
+from pymongo import ReturnDocument
 from .csv_parser import parse_transaction_csv, CSVParserError
+
+from .db import audit_reports_col, transactions_col, flagged_transactions_col
 
 # ============================================
 # GraphQL Types (Business Entities)
@@ -38,89 +41,12 @@ class FlaggedTransactionType(graphene.ObjectType):
 
 
 # ============================================
-# Mock Data (In-Memory Storage)
+# Mock Data (In-Memory Storage) - REPLACED WITH MONGODB
 # ============================================
-
-# Store all transactions by report_id
-MOCK_TRANSACTIONS = {
-    "1": [
-        {
-            "id": "1001",
-            "transaction_id": "TXN-2026-00542",
-            "date": "2026-01-15T14:30:00",
-            "amount": 45000.00,
-            "merchant": "Global Tech Supplies",
-            "category": "Electronics",
-            "account_id": "ACC-001"
-        },
-        {
-            "id": "1002",
-            "transaction_id": "TXN-2026-00543",
-            "date": "2026-01-15T15:20:00",
-            "amount": 250.00,
-            "merchant": "Office Depot",
-            "category": "Office Supplies",
-            "account_id": "ACC-002"
-        },
-        {
-            "id": "1003",
-            "transaction_id": "TXN-2026-00544",
-            "date": "2026-01-15T16:10:00",
-            "amount": 8500.50,
-            "merchant": "Midnight Transfers LLC",
-            "category": "Wire Transfer",
-            "account_id": "ACC-003"
-        }
-    ]
-}
-
-MOCK_AUDIT_REPORTS = [
-    {
-        "id": "1",
-        "file_name": "january_transactions.csv",
-        "uploaded_at": "2026-01-15T10:30:00",
-        "total_transactions": 5420,
-        "flagged_count": 23,
-        "status": "completed"
-    },
-    {
-        "id": "2",
-        "file_name": "december_transactions.csv",
-        "uploaded_at": "2026-01-10T14:20:00",
-        "total_transactions": 4890,
-        "flagged_count": 18,
-        "status": "completed"
-    },
-    {
-        "id": "3",
-        "file_name": "february_transactions.csv",
-        "uploaded_at": "2026-02-05T09:15:00",
-        "total_transactions": 6100,
-        "flagged_count": 31,
-        "status": "processing"
-    }
-]
-
-MOCK_FLAGGED_TRANSACTIONS = {
-    "1": [
-        {
-            "id": "101",
-            "transaction_id": "TXN-2026-00542",
-            "amount": 45000.00,
-            "risk_score": 0.92,
-            "decision": "review_required",
-            "explanation": "High amount ($45,000) + unusual merchant category + amount is 3.2 standard deviations above mean"
-        },
-        {
-            "id": "102",
-            "transaction_id": "TXN-2026-00544",
-            "amount": 8500.50,
-            "risk_score": 0.78,
-            "decision": "review_required",
-            "explanation": "Transaction at midnight (02:15 AM) + new merchant + high amount"
-        }
-    ]
-}
+# All data is now stored in MongoDB collections:
+# - audit_reports_col
+# - transactions_col
+# - flagged_transactions_col
 
 class DashboardSummaryType(graphene.ObjectType):
     total_reports = graphene.Int()
@@ -149,34 +75,57 @@ class Query(graphene.ObjectType):
     dashboard_summary = graphene.Field(DashboardSummaryType)
 
     def resolve_audit_reports(root, info):
-        return [AuditReportType(**report) for report in MOCK_AUDIT_REPORTS]
+        reports = audit_reports_col.find()
+        return [
+            AuditReportType(
+                id=str(r["_id"]),
+                file_name=r["file_name"],
+                uploaded_at=r["uploaded_at"],
+                total_transactions=r["total_transactions"],
+                flagged_count=r["flagged_count"],
+                status=r["status"]
+            )
+            for r in reports
+        ]
+
 
     def resolve_transactions(root, info, report_id):
-        transactions = MOCK_TRANSACTIONS.get(report_id, [])
-        return [TransactionType(**txn) for txn in transactions]
+        transactions = transactions_col.find({"report_id": report_id})
+        return [
+            TransactionType(
+                id=str(txn["_id"]),
+                transaction_id=txn["transaction_id"],
+                date=txn["date"],
+                amount=txn["amount"],
+                merchant=txn["merchant"],
+                category=txn["category"],
+                account_id=txn["account_id"]
+            )
+            for txn in transactions
+        ]
 
     def resolve_flagged_transactions(root, info, report_id):
-        transactions = MOCK_FLAGGED_TRANSACTIONS.get(report_id, [])
-        return [FlaggedTransactionType(**txn) for txn in transactions]
+        transactions = flagged_transactions_col.find({"report_id": report_id})
+        return [
+            FlaggedTransactionType(
+                id=str(txn["_id"]),
+                transaction_id=txn["transaction_id"],
+                amount=txn["amount"],
+                risk_score=txn["risk_score"],
+                decision=txn["decision"],
+                explanation=txn["explanation"]
+            )
+            for txn in transactions
+        ]
 
     def resolve_dashboard_summary(root, info):
-        total_reports = len(MOCK_AUDIT_REPORTS)
-
-        total_transactions = sum(
-            report["total_transactions"] for report in MOCK_AUDIT_REPORTS
-        )
-
-        total_flagged = sum(
-            report["flagged_count"] for report in MOCK_AUDIT_REPORTS
-        )
-
-        processing_count = sum(
-            1 for report in MOCK_AUDIT_REPORTS if report["status"] == "processing"
-        )
-
-        completed_count = sum(
-            1 for report in MOCK_AUDIT_REPORTS if report["status"] == "completed"
-        )
+        reports = list(audit_reports_col.find())
+        
+        total_reports = len(reports)
+        total_transactions = sum(report.get("total_transactions", 0) for report in reports)
+        total_flagged = sum(report.get("flagged_count", 0) for report in reports)
+        processing_count = sum(1 for report in reports if report.get("status") == "processing")
+        completed_count = sum(1 for report in reports if report.get("status") == "completed")
 
         return DashboardSummaryType(
             total_reports=total_reports,
@@ -224,10 +173,8 @@ class UploadAuditFile(graphene.Mutation):
             # Parse and validate CSV content using csv_parser
             transactions, summary = parse_transaction_csv(csv_content)
             
-            # Create new audit report
-            report_id = str(len(MOCK_AUDIT_REPORTS) + 1)
+            # Create new audit report in MongoDB
             new_report = {
-                "id": report_id,
                 "file_name": file_name,
                 "uploaded_at": datetime.utcnow().isoformat(),
                 "total_transactions": summary['total_transactions'],
@@ -235,17 +182,26 @@ class UploadAuditFile(graphene.Mutation):
                 "status": "processing"
             }
             
-            # Store report and transactions in memory
-            MOCK_AUDIT_REPORTS.append(new_report)
-            MOCK_TRANSACTIONS[report_id] = transactions
+            # Insert report into MongoDB
+            result = audit_reports_col.insert_one(new_report)
+            report_id = str(result.inserted_id)
             
-            # Initialize empty flagged transactions list
-            MOCK_FLAGGED_TRANSACTIONS[report_id] = []
+            # Store transactions in MongoDB with report_id reference
+            for txn in transactions:
+                txn['report_id'] = report_id
+            transactions_col.insert_many(transactions)
             
             return UploadAuditFileResponse(
                 success=True,
                 message=f"Successfully uploaded and parsed {summary['total_transactions']} transactions",
-                report=AuditReportType(**new_report)
+                report=AuditReportType(
+                    id=report_id,
+                    file_name=new_report["file_name"],
+                    uploaded_at=new_report["uploaded_at"],
+                    total_transactions=new_report["total_transactions"],
+                    flagged_count=new_report["flagged_count"],
+                    status=new_report["status"]
+                )
             )
             
         except CSVParserError as e:
@@ -290,17 +246,14 @@ class UpdateTransactionDecision(graphene.Mutation):
                 transaction=None
             )
         
-        # Find the flagged transaction
-        flagged_txns = MOCK_FLAGGED_TRANSACTIONS.get(report_id, [])
-        transaction = None
+        # Find and update the flagged transaction in MongoDB
+        result = flagged_transactions_col.find_one_and_update(
+            {"report_id": report_id, "transaction_id": transaction_id},
+            {"$set": {"decision": decision}},
+            return_document=ReturnDocument.AFTER
+        )
         
-        for txn in flagged_txns:
-            if txn['transaction_id'] == transaction_id:
-                txn['decision'] = decision
-                transaction = txn
-                break
-        
-        if not transaction:
+        if not result:
             return UpdateTransactionDecisionResponse(
                 success=False,
                 message=f"Transaction {transaction_id} not found in report {report_id}",
@@ -310,7 +263,14 @@ class UpdateTransactionDecision(graphene.Mutation):
         return UpdateTransactionDecisionResponse(
             success=True,
             message=f"Transaction decision updated to '{decision}'",
-            transaction=FlaggedTransactionType(**transaction)
+            transaction=FlaggedTransactionType(
+                id=str(result["_id"]),
+                transaction_id=result["transaction_id"],
+                amount=result["amount"],
+                risk_score=result["risk_score"],
+                decision=result["decision"],
+                explanation=result["explanation"]
+            )
         )
 
 
