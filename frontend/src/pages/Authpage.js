@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 const GRAPHQL_URL = "http://localhost:8000/graphql/";
 
 // ── Replace with your real Google Client ID from console.cloud.google.com ──
-const GOOGLE_CLIENT_ID = process.env.REACT_APP_GOOGLE_CLIENT_ID || "";
+const GOOGLE_CLIENT_ID = process.env.REACT_APP_GOOGLE_CLIENT_ID || "79604445384-4jrnbijh3cfqi5u1c057d4bheuchqhor.apps.googleusercontent.com";
 
 const AuthPage = () => {
   const [isLogin, setIsLogin] = useState(true);
@@ -205,11 +205,6 @@ const AuthPage = () => {
                   <label className="block text-sm font-medium text-slate-700">
                     Password
                   </label>
-                  {isLogin && (
-                    <span className="text-xs font-semibold text-[#1152d4] cursor-pointer">
-                      Forgot password?
-                    </span>
-                  )}
                 </div>
 
                 <input
