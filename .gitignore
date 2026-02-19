@@ -1,8 +1,12 @@
 # Virtual environment
 backend/venv/
+backend/.venv/
 
 # Django local database
 backend/db.sqlite3
+
+# MongoDB local data
+backend/data/
 
 # Environment variables
 .env
@@ -10,3 +14,6 @@ backend/db.sqlite3
 # Python cache
 __pycache__/
 *.pyc
+
+# Binaries
+*.exe
