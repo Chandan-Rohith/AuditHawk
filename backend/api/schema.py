@@ -1,9 +1,35 @@
 import graphene
-from datetime import datetime
+import jwt
+import os
+from django.conf import settings
+from django.contrib.auth import get_user_model, authenticate
+from django.utils import timezone
+try:
+    from google.oauth2 import id_token as google_id_token
+    from google.auth.transport import requests as google_requests
+    GOOGLE_AUTH_AVAILABLE = True
+except Exception:
+    GOOGLE_AUTH_AVAILABLE = False
+from datetime import datetime, timedelta
 from pymongo import ReturnDocument
 from .csv_parser import parse_transaction_csv, CSVParserError
 
-from .db import audit_reports_col, transactions_col, flagged_transactions_col
+from .db import audit_reports_col, transactions_col, flagged_transactions_col, users_col
+
+JWT_SECRET = settings.SECRET_KEY
+JWT_ALGORITHM = "HS256"
+JWT_EXPIRATION_HOURS = 24
+
+
+def generate_jwt(user):
+    """Generate a JWT token for a given Django user."""
+    payload = {
+        "user_id": user.id,
+        "email": user.email,
+        "exp": datetime.utcnow() + timedelta(hours=JWT_EXPIRATION_HOURS),
+        "iat": datetime.utcnow(),
+    }
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
 # ============================================
 # GraphQL Types (Business Entities)
@@ -274,9 +300,141 @@ class UpdateTransactionDecision(graphene.Mutation):
         )
 
 
+# ============================================
+# User / Auth Types & Mutations
+# ============================================
+
+
+class UserType(graphene.ObjectType):
+    id = graphene.ID()
+    email = graphene.String()
+    provider = graphene.String()
+    created_at = graphene.String()
+
+
+class AuthResponse(graphene.ObjectType):
+    success = graphene.Boolean()
+    message = graphene.String()
+    token = graphene.String()
+    user = graphene.Field(UserType)
+
+
+class CreateUser(graphene.Mutation):
+    class Arguments:
+        email = graphene.String(required=True)
+        password = graphene.String(required=True)
+        name = graphene.String(required=False)
+
+    Output = AuthResponse
+
+    def mutate(root, info, email, password, name=None):
+        User = get_user_model()
+        if User.objects.filter(username=email).exists():
+            return AuthResponse(success=False, message="User already exists", token=None, user=None)
+
+        user = User.objects.create_user(username=email, email=email)
+        user.set_password(password)
+        if name:
+            user.first_name = name
+        user.save()
+
+        profile = {
+            "email": email,
+            "provider": "local",
+            "created_at": timezone.now().isoformat(),
+        }
+        users_col.insert_one(profile)
+
+        token = generate_jwt(user)
+        return AuthResponse(
+            success=True,
+            message="User created successfully",
+            token=token,
+            user=UserType(id=str(user.id), email=user.email, provider="local", created_at=profile["created_at"])
+        )
+
+
+class LoginUser(graphene.Mutation):
+    """Authenticate an existing user with email + password."""
+    class Arguments:
+        email = graphene.String(required=True)
+        password = graphene.String(required=True)
+
+    Output = AuthResponse
+
+    def mutate(root, info, email, password):
+        user = authenticate(username=email, password=password)
+        if user is None:
+            return AuthResponse(success=False, message="Invalid email or password", token=None, user=None)
+
+        # Record login in MongoDB
+        users_col.update_one(
+            {"email": email},
+            {"$set": {"last_login": timezone.now().isoformat()}},
+            upsert=True,
+        )
+
+        token = generate_jwt(user)
+        return AuthResponse(
+            success=True,
+            message="Login successful",
+            token=token,
+            user=UserType(id=str(user.id), email=user.email, provider="local", created_at=None)
+        )
+
+
+class GoogleAuth(graphene.Mutation):
+    class Arguments:
+        id_token = graphene.String(required=True)
+
+    Output = AuthResponse
+
+    def mutate(root, info, id_token):
+        if not GOOGLE_AUTH_AVAILABLE:
+            return AuthResponse(success=False, message="Server missing google-auth library.", token=None, user=None)
+
+        try:
+            payload = google_id_token.verify_oauth2_token(
+                id_token,
+                google_requests.Request(),
+                clock_skew_in_seconds=10,
+            )
+        except Exception as e:
+            return AuthResponse(success=False, message=f"Invalid Google token: {str(e)}", token=None, user=None)
+
+        email = payload.get("email")
+        name = payload.get("name")
+
+        if not email:
+            return AuthResponse(success=False, message="Google token did not contain email", token=None, user=None)
+
+        User = get_user_model()
+        user, created = User.objects.get_or_create(username=email, defaults={"email": email})
+
+        profile = {
+            "email": email,
+            "provider": "google",
+            "name": name,
+            "last_login": timezone.now().isoformat(),
+        }
+        users_col.update_one({"email": email}, {"$set": profile}, upsert=True)
+
+        token = generate_jwt(user)
+        return AuthResponse(
+            success=True,
+            message="Authenticated via Google",
+            token=token,
+            user=UserType(id=str(user.id), email=email, provider="google", created_at=profile.get("last_login"))
+        )
+
+
 class Mutation(graphene.ObjectType):
     upload_audit_file = UploadAuditFile.Field()
     update_transaction_decision = UpdateTransactionDecision.Field()
+    # Authentication / user management
+    create_user = CreateUser.Field()
+    login_user = LoginUser.Field()
+    google_auth = GoogleAuth.Field()
 
 
 # ============================================

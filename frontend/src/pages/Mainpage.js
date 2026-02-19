@@ -41,52 +41,82 @@ const MainPage = () => {
   };
 
   /* ============================= */
-  /*        MOCK ANALYSIS          */
+  /*     REAL CSV ANALYSIS         */
   /* ============================= */
 
-  const handleAnalysis = (threshold) => {
-    const mockTransactions = Array.from({ length: 20 }, (_, i) => {
-      const amount = Math.floor(Math.random() * 10000);
-      const mlRisk = Math.random();
+  const handleAnalysis = async (threshold, file) => {
+    if (!file) {
+      alert("No file provided.");
+      return;
+    }
 
-      const ruleBased = amount > threshold;
-      const mlBased = mlRisk > 0.75;
+    try {
+      const csvText = await file.text();
+      const lines = csvText.trim().split("\n");
+      if (lines.length < 2) {
+        alert("CSV file is empty or has no data rows.");
+        return;
+      }
 
-      let reason = "";
-      if (ruleBased && mlBased) reason = "Both Flags";
-      else if (ruleBased) reason = "Rule-Based";
-      else if (mlBased) reason = "ML-Based";
+      const headers = lines[0].split(",").map(h => h.trim().toLowerCase());
+      const amountIdx = headers.indexOf("amount");
+      const txnIdIdx = headers.indexOf("transaction_id");
+      const merchantIdx = headers.indexOf("merchant");
+      const categoryIdx = headers.indexOf("category");
+      const dateIdx = headers.indexOf("date");
+      const accountIdx = headers.indexOf("account_id");
 
-      return {
-        id: i + 1,
-        amount,
-        mlRisk,
-        flagged: ruleBased || mlBased,
-        reason,
-        status: "pending",
+      if (amountIdx === -1 || txnIdIdx === -1) {
+        alert("CSV must contain at least 'transaction_id' and 'amount' columns.");
+        return;
+      }
+
+      const parsedTransactions = lines.slice(1).map((line, i) => {
+        const cols = line.split(",").map(c => c.trim());
+        const amount = parseFloat(cols[amountIdx]) || 0;
+        const flagged = amount > threshold;
+
+        return {
+          id: i + 1,
+          transaction_id: cols[txnIdIdx] || `TX-${i + 1}`,
+          date: dateIdx !== -1 ? cols[dateIdx] : "",
+          amount,
+          merchant: merchantIdx !== -1 ? cols[merchantIdx] : "",
+          category: categoryIdx !== -1 ? cols[categoryIdx] : "",
+          account_id: accountIdx !== -1 ? cols[accountIdx] : "",
+          mlRisk: 0, // ML not wired yet
+          flagged,
+          reason: flagged ? "Exceeds Threshold" : "",
+          status: "pending",
+        };
+      });
+
+      const flagged = parsedTransactions.filter(tx => tx.flagged);
+      const risk = parsedTransactions.length
+        ? Math.round((flagged.length / parsedTransactions.length) * 100)
+        : 0;
+
+      const session = {
+        id: Date.now(),
+        fileName: file.name,
+        date: new Date().toLocaleDateString(),
+        transactions: parsedTransactions,
+        frauds: flagged,
+        riskScore: risk,
       };
-    });
 
-    const flagged = mockTransactions.filter(tx => tx.flagged);
-    const risk = Math.round((flagged.length / mockTransactions.length) * 100);
+      setTransactions(parsedTransactions);
+      setFrauds(flagged);
+      setRiskScore(risk);
+      setHistory(prev => [session, ...prev]);
 
-    const session = {
-      id: Date.now(),
-      fileName: "transactions.csv",
-      date: new Date().toLocaleDateString(),
-      transactions: mockTransactions,
-      frauds: flagged,
-      riskScore: risk,
-    };
-
-    setTransactions(mockTransactions);
-    setFrauds(flagged);
-    setRiskScore(risk);
-    setHistory(prev => [session, ...prev]);
-
-    setSelectedSession(session);
-    setActiveView("session");
-    setShowUpload(false);
+      setSelectedSession(session);
+      setActiveView("session");
+      setShowUpload(false);
+    } catch (err) {
+      console.error("CSV parsing error:", err);
+      alert("Failed to parse the CSV file. Please check the format.");
+    }
   };
 
   /* ============================= */

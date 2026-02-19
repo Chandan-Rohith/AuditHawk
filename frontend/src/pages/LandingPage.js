@@ -50,7 +50,7 @@ const LandingPage = () => {
             </h1>
 
             <p className="text-lg lg:text-xl text-gray-600 leading-relaxed max-w-xl mx-auto lg:mx-0">
-              Leverage batch processing, mock ML risk scoring, and rule-based
+              Leverage batch processing, ML risk scoring, and rule-based
               detection to secure your transactions with Explainable AI
               transparency.
             </p>
@@ -68,7 +68,7 @@ const LandingPage = () => {
                   <div className="w-3 h-3 rounded-full bg-green-400"></div>
                 </div>
                 <span className="text-xs text-gray-500 font-mono">
-                  audithawk-dashboard-v1.0
+                  {/* audithawk-dashboard-v1.0 */}
                 </span>
               </div>
 
@@ -112,7 +112,7 @@ const LandingPage = () => {
       <section className="py-24 bg-white">
         <div className="max-w-7xl mx-auto px-6 text-center">
           <h2 className="text-[#1152d4] font-bold uppercase text-xs tracking-widest mb-3">
-            Enterprise Grade
+            {/* Enterprise Grade */}
           </h2>
 
           <h3 className="text-3xl md:text-4xl font-black mb-6">

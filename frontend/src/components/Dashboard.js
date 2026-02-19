@@ -210,8 +210,9 @@ const FraudTable = ({ frauds, onAccept, onReject }) => (
       <thead className="bg-gray-50 text-xs uppercase font-bold text-gray-500">
         <tr>
           <th className="px-6 py-3">Transaction</th>
+          <th className="px-6 py-3">Merchant</th>
           <th className="px-6 py-3">Amount</th>
-          <th className="px-6 py-3">Risk</th>
+          <th className="px-6 py-3">Category</th>
           <th className="px-6 py-3">Reason</th>
           <th className="px-6 py-3 text-right">Actions</th>
         </tr>
@@ -221,15 +222,19 @@ const FraudTable = ({ frauds, onAccept, onReject }) => (
         {frauds.map(tx => (
           <tr key={tx.id} className="border-t hover:bg-gray-50">
             <td className="px-6 py-4 font-mono">
-              TX-{tx.id}
+              {tx.transaction_id || `TX-${tx.id}`}
+            </td>
+
+            <td className="px-6 py-4">
+              {tx.merchant || "—"}
             </td>
 
             <td className="px-6 py-4 font-bold">
               ${tx.amount}
             </td>
 
-            <td className="px-6 py-4">
-              {(tx.mlRisk * 100).toFixed(1)}%
+            <td className="px-6 py-4 text-xs">
+              {tx.category || "—"}
             </td>
 
             <td className="px-6 py-4 text-xs text-blue-600">
