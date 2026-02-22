@@ -3,6 +3,7 @@ import AppNavbar from "../components/AppNavbar";
 import Dashboard from "../components/Dashboard";
 import UploadModal from "../components/UploadModal";
 import HistoryPage from "../components/HistoryPage";
+import TrustedVendorsPage from "../components/TrustedVendorsPage";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
 
@@ -15,6 +16,7 @@ const MainPage = () => {
   const [riskScore, setRiskScore] = useState(0);
 
   const [history, setHistory] = useState([]);
+  const [trustedVendors, setTrustedVendors] = useState([]);
   const [activeView, setActiveView] = useState("dashboard");
   const [selectedSession, setSelectedSession] = useState(null);
 
@@ -74,19 +76,23 @@ const MainPage = () => {
       const parsedTransactions = lines.slice(1).map((line, i) => {
         const cols = line.split(",").map(c => c.trim());
         const amount = parseFloat(cols[amountIdx]) || 0;
-        const flagged = amount > threshold;
+        const merchant = merchantIdx !== -1 ? cols[merchantIdx] : "";
+        const isTrusted = trustedVendors.some(
+          v => v.toLowerCase() === merchant.toLowerCase()
+        );
+        const flagged = !isTrusted && amount > threshold;
 
         return {
           id: i + 1,
           transaction_id: cols[txnIdIdx] || `TX-${i + 1}`,
           date: dateIdx !== -1 ? cols[dateIdx] : "",
           amount,
-          merchant: merchantIdx !== -1 ? cols[merchantIdx] : "",
+          merchant,
           category: categoryIdx !== -1 ? cols[categoryIdx] : "",
           account_id: accountIdx !== -1 ? cols[accountIdx] : "",
           mlRisk: 0, // ML not wired yet
           flagged,
-          reason: flagged ? "Exceeds Threshold" : "",
+          reason: flagged ? "Exceeds Threshold" : isTrusted ? "Trusted Vendor" : "",
           status: "pending",
         };
       });
@@ -179,6 +185,15 @@ const MainPage = () => {
             onUploadClick={() => setShowUpload(true)}
             onAccept={handleAccept}
             onReject={handleReject}
+          />
+        )}
+
+        {/* TRUSTED VENDORS VIEW */}
+        {activeView === "vendors" && (
+          <TrustedVendorsPage
+            vendors={trustedVendors}
+            onAddVendor={(name) => setTrustedVendors(prev => [...prev, name])}
+            onRemoveVendor={(name) => setTrustedVendors(prev => prev.filter(v => v !== name))}
           />
         )}
 

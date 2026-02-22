@@ -24,6 +24,14 @@ const AppNavbar = ({ setActiveView, onUploadClick }) => {
       {/* Navigation */}
       <div className="flex gap-8 text-sm font-semibold items-center">
 
+        {/* Trusted Vendors */}
+        <button
+          onClick={() => setActiveView("vendors")}
+          className="hover:text-[#1152d4] transition-colors"
+        >
+          Trusted Vendors
+        </button>
+
         {/* History */}
         <button
           onClick={() => setActiveView("history")}
