@@ -110,8 +110,8 @@ const MainPage = () => {
       setRiskScore(risk);
       setHistory(prev => [session, ...prev]);
 
-      setSelectedSession(session);
-      setActiveView("session");
+      setSelectedSession(null);
+      setActiveView("dashboard");
       setShowUpload(false);
     } catch (err) {
       console.error("CSV parsing error:", err);
@@ -159,6 +159,11 @@ const MainPage = () => {
         setActiveView={(view) => {
           setActiveView(view);
           setSelectedSession(null);
+          if (view === "dashboard") {
+            setTransactions([]);
+            setFrauds([]);
+            setRiskScore(0);
+          }
         }}
         onUploadClick={() => setShowUpload(true)}
       />

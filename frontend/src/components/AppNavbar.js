@@ -24,14 +24,6 @@ const AppNavbar = ({ setActiveView, onUploadClick }) => {
       {/* Navigation */}
       <div className="flex gap-8 text-sm font-semibold items-center">
 
-        {/* Upload */}
-        <button
-          onClick={onUploadClick}
-          className="hover:text-[#1152d4] transition-colors"
-        >
-          Upload
-        </button>
-
         {/* History */}
         <button
           onClick={() => setActiveView("history")}

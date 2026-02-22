@@ -70,7 +70,7 @@ const Dashboard = ({
 
           <div className="bg-white rounded-xl border p-8 shadow-sm">
             <h4 className="text-lg font-bold mb-6">
-              Visual Summary
+            Analysis Summary
             </h4>
 
             <div className="h-64 flex items-center justify-center text-gray-400">
@@ -100,7 +100,7 @@ const Dashboard = ({
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-black">
-            Post-Analysis Dashboard
+            Analysis Dashboard
           </h1>
           <p className="text-gray-500 text-sm mt-1">
             Audit complete for current session

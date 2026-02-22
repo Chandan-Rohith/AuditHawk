@@ -22,16 +22,9 @@ const LandingPage = () => {
           <div className="flex items-center gap-3">
             <button
               onClick={() => navigate("/auth")}
-              className="px-4 py-2 text-sm font-bold text-gray-800 hover:bg-blue-50 rounded-lg transition-all"
-            >
-              Login
-            </button>
-
-            <button
-              onClick={() => navigate("/auth")}
               className="bg-[#1152d4] hover:bg-[#0e44b3] text-white px-5 py-2 text-sm font-bold rounded-lg shadow-lg shadow-blue-500/20 transition-all"
             >
-              Signup
+              Login / Signup
             </button>
           </div>
         </div>
@@ -82,20 +75,10 @@ const LandingPage = () => {
                   <div className="h-24 bg-yellow-100 rounded-lg"></div>
                 </div>
 
-                <div className="flex items-center justify-center h-40 bg-blue-50 rounded-lg border border-dashed border-blue-200">
-                  <svg
-                    className="w-14 h-14 text-[#1152d4]"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6m4 0a2 2 0 002 2h2a2 2 0 002-2m-6 0V9a2 2 0 012-2h2a2 2 0 012 2v10m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14"
-                    />
-                  </svg>
+                <div className="flex items-end justify-center gap-2 h-40 bg-blue-50 rounded-lg border border-dashed border-blue-200 px-6 pb-6">
+                  <div className="w-8 bg-[#1152d4]/30 rounded-t-md" style={{ height: '40%' }}></div>
+                  <div className="w-8 bg-[#1152d4]/60 rounded-t-md" style={{ height: '65%' }}></div>
+                  <div className="w-8 bg-[#1152d4] rounded-t-md" style={{ height: '90%' }}></div>
                 </div>
               </div>
             </div>
