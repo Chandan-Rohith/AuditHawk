@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}AuditHawk – Dashboard{% endblock %}
+
+{% block body %}
+<div class="min-h-screen bg-[#1A1A1A]" id="app-root">
+
+  {% include "partials/navbar.html" %}
+
+  <main class="max-w-7xl mx-auto px-6 py-8">
+    {% include "partials/dashboard.html" %}
+    {% include "partials/vendors.html" %}
+    {% include "partials/history.html" %}
+    {% include "partials/session.html" %}
+  </main>
+
+  {% include "partials/upload_modal.html" %}
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+/* ═══════════════════════════════════════════════════
+   AuditHawk – shared state & glue logic
+   ═══════════════════════════════════════════════════ */
+
+// ── shared state ──
+let transactions = [];
+let frauds = [];
+let riskScore = 0;
+let history = [];
+let trustedVendors = [];
+let selectedFile = null;
+let activeView = "dashboard";
+let doughnutChart = null;
+
+// ── view switching ──
+function switchView(view, reset) {
+  activeView = view;
+  ["dashboard","vendors","history","session"].forEach(v => {
+    document.getElementById("view-" + v).classList.toggle("hidden", v !== view);
+  });
+  if (view === "dashboard" && reset) {
+    transactions = [];
+    frauds = [];
+    riskScore = 0;
+    renderDashboard();
+  }
+  if (view === "vendors") renderVendors();
+  if (view === "history") renderHistory();
+}
+
+// ── logout ──
+async function handleLogout() {
+  await fetch("/api/auth/logout", { method: "POST" });
+  window.location.href = "/auth";
+}
+
+/* ═══════════════════ INIT ═══════════════════ */
+renderDashboard();
+</script>
+{% endblock %}

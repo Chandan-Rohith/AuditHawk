@@ -1,0 +1,64 @@
+:root{
+  --page-bg: #1A1A1A;
+  --card-1: #212121;
+  --card-2: #2D2D2D;
+  --card-3: #3D3D3D;
+  --primary: #FF6B35;
+  --success: #00D4AA;
+  --text-primary: #FFFFFF;
+  --text-secondary: #777777;
+}
+
+/* Apply base backgrounds and text colors */
+.bg-app { background-color: var(--page-bg) !important; }
+.text-primary { color: var(--text-primary) !important; }
+.text-secondary { color: var(--text-secondary) !important; }
+
+/* Card elevation layers */
+.bg-card-1 { background-color: var(--card-1) !important; }
+.bg-card-2 { background-color: var(--card-2) !important; }
+.bg-card-3 { background-color: var(--card-3) !important; }
+
+/* Semantic accents */
+.bg-primary { background-color: var(--primary) !important; }
+.text-primary-accent { color: var(--primary) !important; }
+.bg-success { background-color: var(--success) !important; }
+.text-success { color: var(--success) !important; }
+
+/* Borders and subtle dividers */
+.border-muted { border-color: rgba(255,255,255,0.06) !important; }
+.border-primary { border-color: var(--primary) !important; }
+
+/* Utility easing for industrial look */
+.card-elev-1 { box-shadow: 0 1px 0 rgba(0,0,0,0.6); }
+.card-elev-2 { box-shadow: 0 6px 18px rgba(0,0,0,0.65); }
+
+/* Tight, monospace-ish typography for terminal feel */
+.font-factory { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, 'Roboto Mono', 'Fira Code', monospace; }
+
+/* Small helpers to override inline colors quickly */
+.text-muted { color: var(--text-secondary) !important; }
+.btn-primary { background-color: var(--primary) !important; color: var(--text-primary) !important; }
+.btn-danger { background-color: #ff4d4f !important; color: var(--text-primary) !important; }
+
+/* Default border color for Tailwind utility borders (border-b, border-t, etc.) */
+*, ::before, ::after { border-color: #3D3D3D; }
+
+/* Ensure body uses the page background */
+body { background-color: var(--page-bg) !important; color: var(--text-primary) !important; }
+
+/* Dark scrollbar */
+::-webkit-scrollbar { width: 8px; }
+::-webkit-scrollbar-track { background: var(--page-bg); }
+::-webkit-scrollbar-thumb { background: var(--card-3); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #555555; }
+
+/* Inputs on dark bg */
+input, select, textarea {
+  background-color: var(--card-2) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--card-3) !important;
+}
+input::placeholder, textarea::placeholder {
+  color: #555555 !important;
+}

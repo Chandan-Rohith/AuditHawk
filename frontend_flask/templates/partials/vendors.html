@@ -1,0 +1,97 @@
+<!-- ═══════════════════ VENDORS VIEW ═══════════════════ -->
+<div id="view-vendors" class="hidden">
+  <div class="mb-8">
+    <h2 class="text-3xl font-extrabold">Trusted Vendors</h2>
+    <p class="text-[#777777] mt-1">Transactions from trusted vendors will not be flagged during analysis.</p>
+  </div>
+
+  <!-- Add Vendor -->
+  <div class="bg-[#212121] rounded-xl border shadow-sm p-6 mb-8">
+    <h3 class="font-bold mb-4">Add a Vendor</h3>
+    <div class="flex gap-3">
+      <input id="vendor-input" type="text" placeholder="Enter vendor name..."
+             onkeydown="if(event.key==='Enter')addVendor()"
+             class="flex-1 px-4 py-2.5 border border-[#3D3D3D] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#FF6B35] focus:border-transparent" />
+      <button onclick="addVendor()"
+              class="bg-[#FF6B35] hover:bg-[#e55a2b] text-white px-6 py-2.5 rounded-lg font-bold text-sm shadow-lg transition-all">
+        Add Vendor
+      </button>
+    </div>
+  </div>
+
+  <!-- Vendor List -->
+  <div class="bg-[#212121] rounded-xl border shadow-sm overflow-hidden">
+    <div class="px-6 py-4 border-b bg-[#2D2D2D] flex justify-between items-center">
+      <h3 class="font-bold">Vendor List</h3>
+      <span class="text-xs font-bold text-[#FF6B35] uppercase" id="vendor-count">0 Vendors</span>
+    </div>
+    <!-- Empty -->
+    <div id="vendors-empty" class="p-12 text-center">
+      <div class="w-20 h-20 mx-auto mb-4 rounded-full border-4 border-dashed border-[#3D3D3D] flex items-center justify-center">
+        <span class="text-3xl text-[#555555]">🏪</span>
+      </div>
+      <h3 class="text-lg font-bold mb-2 text-[#999999]">No Trusted Vendors</h3>
+      <p class="text-[#777777] text-sm">Add vendors above to whitelist them from fraud flagging.</p>
+    </div>
+    <!-- Table -->
+    <table id="vendors-table" class="w-full text-left text-sm hidden">
+      <thead class="bg-[#2D2D2D] text-xs uppercase font-bold text-[#777777]">
+        <tr>
+          <th class="px-6 py-3">#</th>
+          <th class="px-6 py-3">Vendor Name</th>
+          <th class="px-6 py-3 text-right">Action</th>
+        </tr>
+      </thead>
+      <tbody id="vendors-tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+/* ═══════════════════ VENDORS JS ═══════════════════ */
+
+function renderVendors() {
+  const tbody = document.getElementById("vendors-tbody");
+  const table = document.getElementById("vendors-table");
+  const empty = document.getElementById("vendors-empty");
+  const countEl = document.getElementById("vendor-count");
+  countEl.textContent = trustedVendors.length + (trustedVendors.length === 1 ? " Vendor" : " Vendors");
+
+  if (trustedVendors.length === 0) {
+    empty.classList.remove("hidden");
+    table.classList.add("hidden");
+    return;
+  }
+  empty.classList.add("hidden");
+  table.classList.remove("hidden");
+  tbody.innerHTML = trustedVendors.map((v, i) => `
+    <tr class="border-t hover:bg-[#2D2D2D]">
+      <td class="px-6 py-4 text-[#555555] font-mono">${i + 1}</td>
+      <td class="px-6 py-4 font-semibold">${v}</td>
+      <td class="px-6 py-4 text-right">
+        <button onclick="removeVendor('${v.replace(/'/g, "\\'")}')"
+                class="px-3 py-1 border border-red-500/30 text-red-500 rounded text-xs font-bold hover:bg-red-900/20 transition-colors">
+          Remove
+        </button>
+      </td>
+    </tr>`).join("");
+}
+
+function addVendor() {
+  const input = document.getElementById("vendor-input");
+  const name = input.value.trim();
+  if (!name) return;
+  if (trustedVendors.some(v => v.toLowerCase() === name.toLowerCase())) {
+    alert("This vendor is already in the trusted list.");
+    return;
+  }
+  trustedVendors.push(name);
+  input.value = "";
+  renderVendors();
+}
+
+function removeVendor(name) {
+  trustedVendors = trustedVendors.filter(v => v !== name);
+  renderVendors();
+}
+</script>

@@ -1,0 +1,12 @@
+<!-- ═══════════════════ NAVBAR ═══════════════════ -->
+<header class="bg-[#212121] border-b border-[#FF6B35]/10 px-8 py-4 flex justify-between items-center">
+  <h1 onclick="switchView('dashboard', true)"
+      class="text-xl font-bold text-[#FF6B35] cursor-pointer select-none">
+    AuditHawk
+  </h1>
+  <div class="flex gap-8 text-sm font-semibold items-center">
+    <button onclick="switchView('vendors')" class="hover:text-[#FF6B35] transition-colors">Trusted Vendors</button>
+    <button onclick="switchView('history')" class="hover:text-[#FF6B35] transition-colors">History</button>
+    <button onclick="handleLogout()" class="text-red-500 hover:text-red-700 transition-colors">Logout</button>
+  </div>
+</header>

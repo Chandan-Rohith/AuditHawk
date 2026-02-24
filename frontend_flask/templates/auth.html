@@ -1,0 +1,196 @@
+{% extends "base.html" %}
+{% block title %}AuditHawk – Sign In{% endblock %}
+
+{% block head %}
+<!-- Google Identity Services SDK -->
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+{% endblock %}
+
+{% block body %}
+<div class="bg-[#1A1A1A] min-h-screen flex items-center justify-center p-4 font-sans">
+  <div class="w-full max-w-lg bg-[#212121] rounded-2xl shadow-xl overflow-hidden">
+    <div class="p-8 md:p-12 flex flex-col justify-center">
+      <div class="max-w-md mx-auto w-full">
+
+        <!-- Header -->
+        <div class="mb-10 text-center">
+          <h2 class="text-2xl font-bold text-white">Welcome to AuditHawk</h2>
+          <p class="text-[#777777] mt-2">Professional financial monitoring and fraud intelligence.</p>
+        </div>
+
+        <!-- Tabs -->
+        <div class="flex p-1 bg-[#2D2D2D] rounded-lg mb-8" id="auth-tabs">
+          <button onclick="switchTab(true)"  id="tab-login"
+                  class="flex-1 py-2.5 text-sm font-semibold rounded-md transition-all bg-[#212121] text-[#FF6B35] shadow-sm">
+            Login
+          </button>
+          <button onclick="switchTab(false)" id="tab-signup"
+                  class="flex-1 py-2.5 text-sm font-semibold rounded-md transition-all text-[#777777]">
+            Sign Up
+          </button>
+        </div>
+
+        <!-- Error -->
+        <div id="auth-error" class="hidden mb-4 px-4 py-3 bg-red-900/20 border border-red-500/30 text-red-700 text-sm rounded-lg"></div>
+
+        <!-- Form -->
+        <form id="auth-form" class="space-y-5" onsubmit="handleAuthSubmit(event)">
+
+          <div>
+            <label class="block text-sm font-medium text-[#999999] mb-2">Email Address</label>
+            <input id="auth-email" type="email" placeholder="auditor@company.com"
+                   class="w-full px-4 py-3 border border-[#3D3D3D] rounded-lg bg-[#1A1A1A] focus:ring-2 focus:ring-[#FF6B35] outline-none transition-all" />
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-[#999999] mb-2">Password</label>
+            <input id="auth-password" type="password" placeholder="••••••••"
+                   class="w-full px-4 py-3 border border-[#3D3D3D] rounded-lg bg-[#1A1A1A] focus:ring-2 focus:ring-[#FF6B35] outline-none transition-all" />
+          </div>
+
+          <!-- Confirm password (signup only) -->
+          <div id="confirm-pw-wrap" class="hidden">
+            <label class="block text-sm font-medium text-[#999999] mb-2">Confirm Password</label>
+            <input id="auth-confirm" type="password" placeholder="••••••••"
+                   class="w-full px-4 py-3 border border-[#3D3D3D] rounded-lg bg-[#1A1A1A] focus:ring-2 focus:ring-[#FF6B35] outline-none transition-all" />
+          </div>
+
+          <button type="submit" id="auth-submit"
+                  class="w-full bg-[#FF6B35] hover:bg-[#e55a2b] disabled:opacity-60 text-white font-semibold py-3.5 rounded-lg shadow-lg shadow-[#FF6B35]/20 transition-all">
+            Sign In
+          </button>
+        </form>
+
+        <!-- Divider -->
+        <div class="relative my-8">
+          <div class="absolute inset-0 flex items-center">
+            <div class="w-full border-t border-[#3D3D3D]"></div>
+          </div>
+          <div class="relative flex justify-center text-sm">
+            <span class="px-2 bg-[#212121] text-[#777777]">Or sign in with</span>
+          </div>
+        </div>
+
+        <!-- Google button rendered by SDK -->
+        <div id="google-btn" class="flex justify-center"></div>
+        {% if not google_client_id %}
+        <p class="text-xs text-center text-[#555555] mt-2">Google sign-in requires GOOGLE_CLIENT_ID in .env</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  /* ── state ── */
+  let isLogin = true;
+
+  function switchTab(login) {
+    isLogin = login;
+    const tabL = document.getElementById("tab-login");
+    const tabS = document.getElementById("tab-signup");
+    const confirmWrap = document.getElementById("confirm-pw-wrap");
+    const submitBtn = document.getElementById("auth-submit");
+
+    if (isLogin) {
+      tabL.className = "flex-1 py-2.5 text-sm font-semibold rounded-md transition-all bg-[#212121] text-[#FF6B35] shadow-sm";
+      tabS.className = "flex-1 py-2.5 text-sm font-semibold rounded-md transition-all text-[#777777]";
+      confirmWrap.classList.add("hidden");
+      submitBtn.textContent = "Sign In";
+    } else {
+      tabS.className = "flex-1 py-2.5 text-sm font-semibold rounded-md transition-all bg-[#212121] text-[#FF6B35] shadow-sm";
+      tabL.className = "flex-1 py-2.5 text-sm font-semibold rounded-md transition-all text-[#777777]";
+      confirmWrap.classList.remove("hidden");
+      submitBtn.textContent = "Create Account";
+    }
+    hideError();
+  }
+
+  function showError(msg) {
+    const el = document.getElementById("auth-error");
+    el.textContent = msg;
+    el.classList.remove("hidden");
+  }
+  function hideError() {
+    document.getElementById("auth-error").classList.add("hidden");
+  }
+
+  async function handleAuthSubmit(e) {
+    e.preventDefault();
+    hideError();
+    const email = document.getElementById("auth-email").value.trim();
+    const password = document.getElementById("auth-password").value;
+    const confirm = document.getElementById("auth-confirm").value;
+
+    if (!email || !password) { showError("Please fill in all fields."); return; }
+    if (!isLogin && password !== confirm) { showError("Passwords do not match."); return; }
+
+    const submitBtn = document.getElementById("auth-submit");
+    submitBtn.disabled = true;
+    submitBtn.textContent = "Please wait…";
+
+    try {
+      const url = isLogin ? "/api/auth/login" : "/api/auth/signup";
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+      const data = await res.json();
+      if (!data.success) {
+        showError(data.message || "Something went wrong.");
+      } else {
+        window.location.href = "/app";
+      }
+    } catch (err) {
+      showError(err.message || "Network error.");
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = isLogin ? "Sign In" : "Create Account";
+    }
+  }
+
+  /* ── Google OAuth ── */
+  const GOOGLE_CLIENT_ID = "{{ google_client_id }}";
+  if (GOOGLE_CLIENT_ID) {
+    const waitForGoogle = setInterval(() => {
+      if (window.google && window.google.accounts) {
+        clearInterval(waitForGoogle);
+        google.accounts.id.initialize({
+          client_id: GOOGLE_CLIENT_ID,
+          callback: handleGoogleResponse,
+        });
+        google.accounts.id.renderButton(
+          document.getElementById("google-btn"),
+          { theme: "outline", size: "large", width: "400", text: "continue_with" }
+        );
+      }
+    }, 200);
+  }
+
+  async function handleGoogleResponse(response) {
+    hideError();
+    const submitBtn = document.getElementById("auth-submit");
+    submitBtn.disabled = true;
+    try {
+      const res = await fetch("/api/auth/google", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ idToken: response.credential }),
+      });
+      const data = await res.json();
+      if (!data.success) {
+        showError(data.message || "Google sign-in failed.");
+      } else {
+        window.location.href = "/app";
+      }
+    } catch (err) {
+      showError(err.message || "Google sign-in failed.");
+    } finally {
+      submitBtn.disabled = false;
+    }
+  }
+</script>
+{% endblock %}

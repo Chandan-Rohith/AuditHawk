@@ -1,0 +1,173 @@
+<!-- ═══════════════════ UPLOAD MODAL ═══════════════════ -->
+<div id="upload-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm bg-black/10 p-4">
+  <div class="bg-[#212121] w-full max-w-xl rounded-xl shadow-2xl border overflow-hidden">
+    <!-- Header -->
+    <div class="px-8 pt-8 pb-4 border-b flex justify-between items-center">
+      <div>
+        <h2 class="text-2xl font-bold">Upload Transactions</h2>
+        <p class="text-[#777777] text-sm mt-1">Prepare your data for automated auditing.</p>
+      </div>
+      <button onclick="closeUpload()">✕</button>
+    </div>
+    <!-- Body -->
+    <div class="p-8 space-y-8">
+      <!-- Drop zone -->
+      <div>
+        <label class="text-sm font-bold block mb-2">Upload CSV File *</label>
+        <div id="drop-zone"
+             onclick="document.getElementById('file-input').click()"
+             class="border-2 border-dashed rounded-xl p-12 text-center transition-all cursor-pointer border-[#FF6B35]/30 bg-[#2D2D2D] hover:border-[#FF6B35]">
+          <input id="file-input" type="file" accept=".csv" class="hidden" onchange="handleFileSelect(event)" />
+          <div id="drop-placeholder">
+            <div class="text-5xl mb-3">📁</div>
+            <p class="text-lg font-bold text-[#FF6B35] mb-2">Click to browse or drag &amp; drop</p>
+            <p class="text-sm text-[#777777]">Accepts CSV files only</p>
+          </div>
+          <div id="drop-selected" class="hidden">
+            <div class="text-5xl mb-3">📄</div>
+            <p class="text-lg font-bold text-green-700" id="selected-file-name"></p>
+            <p class="text-sm text-[#777777] mt-1" id="selected-file-size"></p>
+            <button onclick="event.stopPropagation(); removeFile()"
+                    class="mt-3 text-sm text-red-600 hover:underline">Remove file</button>
+          </div>
+        </div>
+      </div>
+      <!-- Threshold -->
+      <div>
+        <label class="text-sm font-bold">Maximum Transaction Amount Threshold *</label>
+        <input id="threshold-input" type="number" placeholder="e.g. 5000"
+               class="w-full mt-2 px-4 py-3 border rounded-lg focus:ring-2 focus:ring-[#FF6B35] outline-none" />
+        <p class="text-sm text-[#FF6B35] mt-2">Transactions exceeding this value will be flagged.</p>
+      </div>
+    </div>
+    <!-- Footer -->
+    <div class="px-8 py-6 bg-[#2D2D2D] border-t flex justify-end gap-3">
+      <button onclick="closeUpload()" class="px-6 py-2 text-[#777777]">Cancel</button>
+      <button onclick="analyzeCSV()"
+              class="px-8 py-2 bg-[#FF6B35] text-white font-bold rounded-lg shadow-lg">
+        Analyze Transactions
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ═══════════════════ UPLOAD MODAL JS ═══════════════════ */
+
+function openUpload() { document.getElementById("upload-modal").classList.remove("hidden"); }
+function closeUpload() {
+  document.getElementById("upload-modal").classList.add("hidden");
+  removeFile();
+  document.getElementById("threshold-input").value = "";
+}
+
+function handleFileSelect(e) {
+  const file = e.target.files[0];
+  if (file && file.name.endsWith(".csv")) {
+    selectedFile = file;
+    showSelectedFile();
+  } else {
+    alert("Please select a valid CSV file.");
+  }
+}
+
+function showSelectedFile() {
+  document.getElementById("drop-placeholder").classList.add("hidden");
+  document.getElementById("drop-selected").classList.remove("hidden");
+  document.getElementById("selected-file-name").textContent = selectedFile.name;
+  document.getElementById("selected-file-size").textContent = (selectedFile.size / 1024).toFixed(2) + " KB";
+  const dz = document.getElementById("drop-zone");
+  dz.classList.remove("border-[#FF6B35]/30", "bg-[#2D2D2D]");
+  dz.classList.add("border-green-500", "bg-green-900/20");
+}
+
+function removeFile() {
+  selectedFile = null;
+  document.getElementById("file-input").value = "";
+  document.getElementById("drop-placeholder").classList.remove("hidden");
+  document.getElementById("drop-selected").classList.add("hidden");
+  const dz = document.getElementById("drop-zone");
+  dz.classList.add("border-[#FF6B35]/30", "bg-[#2D2D2D]");
+  dz.classList.remove("border-green-500", "bg-green-900/20");
+}
+
+// drag & drop
+const dropZone = document.getElementById("drop-zone");
+dropZone.addEventListener("dragover", e => { e.preventDefault(); dropZone.classList.add("border-[#FF6B35]","bg-[#3D3D3D]"); });
+dropZone.addEventListener("dragleave", e => { e.preventDefault(); dropZone.classList.remove("border-[#FF6B35]","bg-[#3D3D3D]"); });
+dropZone.addEventListener("drop", e => {
+  e.preventDefault();
+  dropZone.classList.remove("border-[#FF6B35]","bg-[#3D3D3D]");
+  const file = e.dataTransfer.files[0];
+  if (file && file.name.endsWith(".csv")) { selectedFile = file; showSelectedFile(); }
+  else alert("Please select a valid CSV file.");
+});
+
+/* ═══════════════════ CSV ANALYSIS ═══════════════════ */
+
+async function analyzeCSV() {
+  if (!selectedFile) { alert("Please upload a CSV file."); return; }
+  const threshold = Number(document.getElementById("threshold-input").value);
+  if (!threshold || threshold <= 0) { alert("Please enter a valid threshold value."); return; }
+
+  const csvText = await selectedFile.text();
+  const lines = csvText.trim().split("\n");
+  if (lines.length < 2) { alert("CSV file is empty or has no data rows."); return; }
+
+  const headers = lines[0].split(",").map(h => h.trim().toLowerCase());
+  const idx = {
+    amount: headers.indexOf("amount"),
+    txnId: headers.indexOf("transaction_id"),
+    merchant: headers.indexOf("merchant"),
+    category: headers.indexOf("category"),
+    date: headers.indexOf("date"),
+    account: headers.indexOf("account_id"),
+  };
+
+  if (idx.amount === -1 || idx.txnId === -1) {
+    alert("CSV must contain at least 'transaction_id' and 'amount' columns.");
+    return;
+  }
+
+  const parsed = lines.slice(1).map((line, i) => {
+    const cols = line.split(",").map(c => c.trim());
+    const amount = parseFloat(cols[idx.amount]) || 0;
+    const merchant = idx.merchant !== -1 ? cols[idx.merchant] : "";
+    const isTrusted = trustedVendors.some(v => v.toLowerCase() === merchant.toLowerCase());
+    const flagged = !isTrusted && amount > threshold;
+    return {
+      id: i + 1,
+      transaction_id: cols[idx.txnId] || "TX-" + (i + 1),
+      date: idx.date !== -1 ? cols[idx.date] : "",
+      amount,
+      merchant,
+      category: idx.category !== -1 ? cols[idx.category] : "",
+      account_id: idx.account !== -1 ? cols[idx.account] : "",
+      flagged,
+      reason: flagged ? "Exceeds Threshold" : isTrusted ? "Trusted Vendor" : "",
+      status: "pending",
+    };
+  });
+
+  const flagged = parsed.filter(tx => tx.flagged);
+  const risk = parsed.length ? Math.round((flagged.length / parsed.length) * 100) : 0;
+
+  transactions = parsed;
+  frauds = flagged;
+  riskScore = risk;
+
+  // save to history
+  history.unshift({
+    id: Date.now(),
+    fileName: selectedFile.name,
+    date: new Date().toLocaleDateString(),
+    transactions: parsed,
+    frauds: flagged,
+    riskScore: risk,
+  });
+
+  closeUpload();
+  switchView("dashboard");
+  renderDashboard();
+}
+</script>

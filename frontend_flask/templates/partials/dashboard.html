@@ -1,0 +1,218 @@
+<!-- ═══════════════════ DASHBOARD VIEW ═══════════════════ -->
+<div id="view-dashboard">
+  <!-- empty state (shown when no transactions) -->
+  <div id="dash-empty">
+    <div class="mb-8">
+      <h2 class="text-3xl font-extrabold">Dashboard</h2>
+      <p class="text-[#777777] mt-1">Real-time fraud detection and transaction analysis.</p>
+    </div>
+    <div class="grid md:grid-cols-3 gap-6 mb-10">
+      <div class="bg-[#212121] p-6 rounded-xl border shadow-sm">
+        <p class="text-xs font-bold text-[#777777] uppercase mb-1">Total Transactions</p>
+        <h3 class="text-3xl font-black text-[#FF6B35]">0</h3>
+      </div>
+      <div class="bg-[#212121] p-6 rounded-xl border shadow-sm">
+        <p class="text-xs font-bold text-[#777777] uppercase mb-1">Fraud Count</p>
+        <h3 class="text-3xl font-black text-[#FF6B35]">0</h3>
+      </div>
+      <div class="bg-[#212121] p-6 rounded-xl border shadow-sm">
+        <p class="text-xs font-bold text-[#777777] uppercase mb-1">Risk Score</p>
+        <h3 class="text-3xl font-black text-[#FF6B35]">0%</h3>
+      </div>
+    </div>
+    <div class="grid lg:grid-cols-3 gap-8">
+      <div class="lg:col-span-2 bg-[#212121] rounded-xl border p-12 text-center shadow-sm">
+        <div class="mb-6">
+          <div class="w-40 h-40 mx-auto rounded-full border-4 border-dashed border-[#3D3D3D] flex items-center justify-center">
+            <span class="text-5xl text-[#555555]">⬆</span>
+          </div>
+        </div>
+        <h3 class="text-2xl font-bold mb-3">No Data Uploaded Yet</h3>
+        <p class="text-[#777777] mb-6">Get started by importing your transaction records for automated fraud detection.</p>
+        <button onclick="openUpload()"
+                class="bg-[#FF6B35] hover:bg-[#e55a2b] text-white font-bold py-3 px-8 rounded-lg shadow-lg">
+          Upload CSV to start analysis
+        </button>
+      </div>
+      <div class="bg-[#212121] rounded-xl border p-8 shadow-sm">
+        <h4 class="text-lg font-bold mb-6">Analysis Summary</h4>
+        <div class="h-64 flex items-center justify-center text-[#555555]">No Data Available</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- filled state (shown after analysis) -->
+  <div id="dash-filled" class="hidden space-y-8">
+    <div class="flex justify-between items-center">
+      <div>
+        <h1 class="text-3xl font-black">Analysis Dashboard</h1>
+        <p class="text-[#777777] text-sm mt-1">Audit complete for current session</p>
+      </div>
+      <button onclick="downloadPDF()"
+              class="bg-[#FF6B35] text-white px-5 py-2 rounded-lg font-bold shadow-lg" id="btn-download">
+        Download Dashboard
+      </button>
+    </div>
+
+    <!-- Metrics -->
+    <div class="grid md:grid-cols-3 gap-6">
+      <div class="bg-[#212121] p-6 rounded-xl border shadow-sm">
+        <p class="text-xs font-bold text-[#777777] uppercase mb-1">Total Transactions</p>
+        <h3 class="text-3xl font-black text-[#FF6B35]" id="metric-total">0</h3>
+      </div>
+      <div class="bg-[#212121] p-6 rounded-xl border shadow-sm">
+        <p class="text-xs font-bold text-[#777777] uppercase mb-1">Fraud Count</p>
+        <h3 class="text-3xl font-black text-red-600" id="metric-fraud">0</h3>
+      </div>
+      <div class="bg-[#212121] p-6 rounded-xl border shadow-sm">
+        <p class="text-xs font-bold text-[#777777] uppercase mb-1">Risk Score</p>
+        <h3 class="text-3xl font-black text-amber-600" id="metric-risk">0%</h3>
+      </div>
+    </div>
+
+    <!-- Chart + Summary -->
+    <div class="grid lg:grid-cols-3 gap-6">
+      <div class="bg-[#212121] p-6 rounded-xl border shadow-sm">
+        <h3 class="font-bold mb-4">Transaction Integrity</h3>
+        <canvas id="doughnut-chart" width="300" height="300"></canvas>
+      </div>
+      <div class="lg:col-span-2 bg-[#212121] p-6 rounded-xl border shadow-sm">
+        <h3 class="font-bold mb-3">Analysis Summary</h3>
+        <p class="text-[#777777] text-sm">
+          AuditHawk processed the dataset using hybrid detection.
+          High-value segments triggered rule-based alerts while
+          ML logic detected behavioral irregularities.
+        </p>
+        <div class="grid grid-cols-2 gap-4 mt-6">
+          <div class="p-4 bg-[#2D2D2D] rounded-lg border border-[#3D3D3D]">
+            <p class="text-xs font-bold uppercase text-[#FF6B35] mb-1">Top Logic Signal</p>
+            <p class="text-sm font-bold text-white">Hybrid ML + Threshold</p>
+          </div>
+          <div class="p-4 bg-[#2D2D2D] rounded-lg border border-[#3D3D3D]">
+            <p class="text-xs font-bold uppercase text-[#FF6B35] mb-1">Avg Flag Value</p>
+            <p class="text-sm font-bold text-white" id="avg-flag-value">$0</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Fraud Table -->
+    <div class="bg-[#212121] rounded-xl border shadow-sm overflow-hidden">
+      <div class="px-6 py-4 border-b bg-[#2D2D2D] flex justify-between">
+        <h3 class="font-bold">Fraud Review Queue</h3>
+        <span class="text-xs font-bold text-[#FF6B35] uppercase" id="fraud-count-label">0 Items Pending</span>
+      </div>
+      <table class="w-full text-left text-sm">
+        <thead class="bg-[#2D2D2D] text-xs uppercase font-bold text-[#777777]">
+          <tr>
+            <th class="px-6 py-3">Transaction</th>
+            <th class="px-6 py-3">Merchant</th>
+            <th class="px-6 py-3">Amount</th>
+            <th class="px-6 py-3">Category</th>
+            <th class="px-6 py-3">Reason</th>
+            <th class="px-6 py-3 text-right">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="fraud-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ═══════════════════ DASHBOARD JS ═══════════════════ */
+
+function renderDashboard() {
+  const total = transactions.length;
+  const fraudCount = frauds.filter(f => f.status !== "rejected").length;
+  const dashEmpty = document.getElementById("dash-empty");
+  const dashFilled = document.getElementById("dash-filled");
+
+  if (total === 0) {
+    dashEmpty.classList.remove("hidden");
+    dashFilled.classList.add("hidden");
+    return;
+  }
+
+  dashEmpty.classList.add("hidden");
+  dashFilled.classList.remove("hidden");
+
+  document.getElementById("metric-total").textContent = total;
+  document.getElementById("metric-fraud").textContent = fraudCount;
+  document.getElementById("metric-risk").textContent = riskScore + "%";
+
+  // avg flag value
+  const avgFlag = fraudCount ? Math.round(frauds.reduce((s, f) => s + f.amount, 0) / fraudCount) : 0;
+  document.getElementById("avg-flag-value").textContent = "$" + avgFlag;
+
+  // doughnut
+  renderChart(total - fraudCount, fraudCount);
+
+  // fraud table
+  renderFraudTable();
+}
+
+function renderChart(legit, flagged) {
+  const ctx = document.getElementById("doughnut-chart").getContext("2d");
+  if (doughnutChart) doughnutChart.destroy();
+  doughnutChart = new Chart(ctx, {
+    type: "doughnut",
+    data: {
+      labels: ["Legitimate", "Flagged"],
+      datasets: [{ data: [legit, flagged], backgroundColor: ["#FF6B35", "#ef4444"], borderWidth: 0 }],
+    },
+  });
+}
+
+function renderFraudTable() {
+  const tbody = document.getElementById("fraud-tbody");
+  document.getElementById("fraud-count-label").textContent = frauds.length + " Items Pending";
+  tbody.innerHTML = frauds.map(tx => `
+    <tr class="border-t hover:bg-[#2D2D2D]">
+      <td class="px-6 py-4 font-mono">${tx.transaction_id || "TX-" + tx.id}</td>
+      <td class="px-6 py-4">${tx.merchant || "—"}</td>
+      <td class="px-6 py-4 font-bold">$${tx.amount}</td>
+      <td class="px-6 py-4 text-xs">${tx.category || "—"}</td>
+      <td class="px-6 py-4 text-xs text-[#FF6B35]">${tx.reason}</td>
+      <td class="px-6 py-4 text-right space-x-2">
+        <button onclick="fraudAction(${tx.id},'accepted')"
+                class="px-3 py-1 bg-[#FF6B35] text-white rounded text-xs font-bold">Accept</button>
+        <button onclick="fraudAction(${tx.id},'rejected')"
+                class="px-3 py-1 border text-[#777777] rounded text-xs font-bold">Reject</button>
+      </td>
+    </tr>`).join("");
+}
+
+function fraudAction(id, status) {
+  frauds = frauds.map(tx => tx.id === id ? { ...tx, status } : tx);
+  renderDashboard();
+}
+
+/* ═══════════════════ PDF DOWNLOAD ═══════════════════ */
+
+async function downloadPDF() {
+  const el = activeView === "session"
+    ? document.getElementById("session-dashboard")
+    : document.getElementById("dash-filled");
+  if (!el) return;
+
+  const canvas = await html2canvas(el);
+  const imgData = canvas.toDataURL("image/png");
+  const { jsPDF } = window.jspdf;
+  const pdf = new jsPDF("p", "mm", "a4");
+  const imgWidth = 210;
+  const imgHeight = (canvas.height * imgWidth) / canvas.width;
+  let heightLeft = imgHeight;
+  let position = 0;
+
+  pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
+  heightLeft -= 295;
+  while (heightLeft > 0) {
+    position = heightLeft - imgHeight;
+    pdf.addPage();
+    pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
+    heightLeft -= 295;
+  }
+  pdf.save("Audit_Report_dashboard.pdf");
+}
+</script>
