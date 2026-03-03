@@ -1,8 +1,8 @@
 <!-- ═══════════════════ UPLOAD MODAL ═══════════════════ -->
-<div id="upload-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm bg-black/10 p-4">
+<div id="upload-modal" class="hidden fixed inset-0 z-50 items-center justify-center p-4 backdrop-blur-sm bg-black/10">
   <div class="bg-[#212121] w-full max-w-xl rounded-xl shadow-2xl border overflow-hidden">
     <!-- Header -->
-    <div class="px-8 pt-8 pb-4 border-b flex justify-between items-center">
+    <div class="flex items-center justify-between px-8 pt-8 pb-4 border-b">
       <div>
         <h2 class="text-2xl font-bold">Upload Transactions</h2>
         <p class="text-[#777777] text-sm mt-1">Prepare your data for automated auditing.</p>
@@ -13,18 +13,18 @@
     <div class="p-8 space-y-8">
       <!-- Drop zone -->
       <div>
-        <label class="text-sm font-bold block mb-2">Upload CSV File *</label>
+        <label class="block mb-2 text-sm font-bold">Upload CSV File *</label>
         <div id="drop-zone"
              onclick="document.getElementById('file-input').click()"
              class="border-2 border-dashed rounded-xl p-12 text-center transition-all cursor-pointer border-[#FF6B35]/30 bg-[#2D2D2D] hover:border-[#FF6B35]">
           <input id="file-input" type="file" accept=".csv" class="hidden" onchange="handleFileSelect(event)" />
           <div id="drop-placeholder">
-            <div class="text-5xl mb-3">📁</div>
+            <div class="mb-3 text-5xl">📁</div>
             <p class="text-lg font-bold text-[#FF6B35] mb-2">Click to browse or drag &amp; drop</p>
             <p class="text-sm text-[#777777]">Accepts CSV files only</p>
           </div>
           <div id="drop-selected" class="hidden">
-            <div class="text-5xl mb-3">📄</div>
+            <div class="mb-3 text-5xl">📄</div>
             <p class="text-lg font-bold text-green-700" id="selected-file-name"></p>
             <p class="text-sm text-[#777777] mt-1" id="selected-file-size"></p>
             <button onclick="event.stopPropagation(); removeFile()"
@@ -32,12 +32,22 @@
           </div>
         </div>
       </div>
-      <!-- Threshold -->
       <div>
-        <label class="text-sm font-bold">Maximum Transaction Amount Threshold *</label>
-        <input id="threshold-input" type="number" placeholder="e.g. 5000"
-               class="w-full mt-2 px-4 py-3 border rounded-lg focus:ring-2 focus:ring-[#FF6B35] outline-none" />
-        <p class="text-sm text-[#FF6B35] mt-2">Transactions exceeding this value will be flagged.</p>
+        <label class="block mb-2 text-sm font-bold">Optional Threshold Limit</label>
+        <input
+          id="threshold-input"
+          type="number"
+          min="0"
+          step="0.01"
+          placeholder="e.g. 5000"
+          class="w-full px-4 py-3 border border-[#3D3D3D] rounded-lg bg-[#1A1A1A] focus:ring-2 focus:ring-[#FF6B35] outline-none"
+        />
+        <p class="text-xs text-[#777777] mt-2">If set, all transactions above this amount are included in the flagged results.</p>
+      </div>
+      <div>
+        <p class="text-sm text-[#FF6B35] mt-2">
+          Uploaded CSV files are processed by the backend ML pipeline and saved to the database.
+        </p>
       </div>
     </div>
     <!-- Footer -->
@@ -54,11 +64,17 @@
 <script>
 /* ═══════════════════ UPLOAD MODAL JS ═══════════════════ */
 
-function openUpload() { document.getElementById("upload-modal").classList.remove("hidden"); }
+function openUpload() {
+  const modal = document.getElementById("upload-modal");
+  modal.classList.remove("hidden");
+  modal.classList.add("flex");
+}
 function closeUpload() {
-  document.getElementById("upload-modal").classList.add("hidden");
-  removeFile();
+  const modal = document.getElementById("upload-modal");
+  modal.classList.add("hidden");
+  modal.classList.remove("flex");
   document.getElementById("threshold-input").value = "";
+  removeFile();
 }
 
 function handleFileSelect(e) {
@@ -107,67 +123,43 @@ dropZone.addEventListener("drop", e => {
 
 async function analyzeCSV() {
   if (!selectedFile) { alert("Please upload a CSV file."); return; }
-  const threshold = Number(document.getElementById("threshold-input").value);
-  if (!threshold || threshold <= 0) { alert("Please enter a valid threshold value."); return; }
+  const form = new FormData();
+  form.append("file", selectedFile);
 
-  const csvText = await selectedFile.text();
-  const lines = csvText.trim().split("\n");
-  if (lines.length < 2) { alert("CSV file is empty or has no data rows."); return; }
-
-  const headers = lines[0].split(",").map(h => h.trim().toLowerCase());
-  const idx = {
-    amount: headers.indexOf("amount"),
-    txnId: headers.indexOf("transaction_id"),
-    merchant: headers.indexOf("merchant"),
-    category: headers.indexOf("category"),
-    date: headers.indexOf("date"),
-    account: headers.indexOf("account_id"),
-  };
-
-  if (idx.amount === -1 || idx.txnId === -1) {
-    alert("CSV must contain at least 'transaction_id' and 'amount' columns.");
-    return;
+  const thresholdRaw = (document.getElementById("threshold-input").value || "").trim();
+  if (thresholdRaw) {
+    const thresholdValue = Number(thresholdRaw);
+    if (!Number.isFinite(thresholdValue) || thresholdValue <= 0) {
+      alert("Threshold must be a number greater than 0.");
+      return;
+    }
+    form.append("thresholdLimit", String(thresholdValue));
   }
 
-  const parsed = lines.slice(1).map((line, i) => {
-    const cols = line.split(",").map(c => c.trim());
-    const amount = parseFloat(cols[idx.amount]) || 0;
-    const merchant = idx.merchant !== -1 ? cols[idx.merchant] : "";
-    const isTrusted = trustedVendors.some(v => v.toLowerCase() === merchant.toLowerCase());
-    const flagged = !isTrusted && amount > threshold;
-    return {
-      id: i + 1,
-      transaction_id: cols[idx.txnId] || "TX-" + (i + 1),
-      date: idx.date !== -1 ? cols[idx.date] : "",
-      amount,
-      merchant,
-      category: idx.category !== -1 ? cols[idx.category] : "",
-      account_id: idx.account !== -1 ? cols[idx.account] : "",
-      flagged,
-      reason: flagged ? "Exceeds Threshold" : isTrusted ? "Trusted Vendor" : "",
-      status: "pending",
-    };
-  });
+  try {
+    const res = await fetch("/api/audit/upload", {
+      method: "POST",
+      body: form,
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      alert(data.message || "Upload failed.");
+      return;
+    }
 
-  const flagged = parsed.filter(tx => tx.flagged);
-  const risk = parsed.length ? Math.round((flagged.length / parsed.length) * 100) : 0;
+    const report = data.report;
+    if (!report || !report.id) {
+      alert("Upload succeeded but no report was returned.");
+      return;
+    }
 
-  transactions = parsed;
-  frauds = flagged;
-  riskScore = risk;
-
-  // save to history
-  history.unshift({
-    id: Date.now(),
-    fileName: selectedFile.name,
-    date: new Date().toLocaleDateString(),
-    transactions: parsed,
-    frauds: flagged,
-    riskScore: risk,
-  });
-
-  closeUpload();
-  switchView("dashboard");
-  renderDashboard();
+    await bootstrapData();
+    await openSession(report.id, true);
+    switchView("dashboard");
+    closeUpload();
+  } catch (err) {
+    console.error("Upload error:", err);
+    alert("Failed to upload and analyze CSV.");
+  }
 }
 </script>

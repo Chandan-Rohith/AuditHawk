@@ -17,12 +17,45 @@
 <script>
 /* ═══════════════════ SESSION JS ═══════════════════ */
 
-function openSession(id) {
+async function openSession(id, silent = false) {
   const session = history.find(s => s.id === id);
   if (!session) return;
-  transactions = session.transactions;
-  frauds = session.frauds;
-  riskScore = session.riskScore;
+
+  try {
+    const res = await fetch(`/api/reports/${encodeURIComponent(id)}`);
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      alert(data.message || "Failed to load report details.");
+      return;
+    }
+
+    transactions = (data.transactions || []).map((tx) => ({
+      id: tx.id,
+      transaction_id: tx.transactionId,
+      date: tx.date,
+      amount: tx.amount,
+      merchant: tx.merchant,
+      category: tx.category,
+      account_id: tx.accountId,
+    }));
+
+    frauds = (data.frauds || []).map((tx) => ({
+      id: tx.id,
+      transaction_id: tx.transactionId,
+      amount: tx.amount,
+      risk_score: tx.riskScore,
+      decision: tx.decision,
+      explanation: tx.explanation,
+      status: tx.decision,
+    }));
+
+    activeReportId = id;
+    riskScore = transactions.length ? Math.round((frauds.length / transactions.length) * 100) : 0;
+  } catch (err) {
+    console.error("Open session error:", err);
+    alert("Failed to load report details.");
+    return;
+  }
 
   document.getElementById("session-filename").textContent = session.fileName;
 
@@ -55,6 +88,8 @@ function openSession(id) {
   const dlBtn = target.querySelector("#btn-download");
   if (dlBtn) dlBtn.classList.add("hidden");
 
-  switchView("session");
+  if (!silent) {
+    switchView("session");
+  }
 }
 </script>

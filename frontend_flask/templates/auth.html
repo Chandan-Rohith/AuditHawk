@@ -6,8 +6,8 @@
 {% block body %}
 <div class="bg-[#1A1A1A] min-h-screen flex items-center justify-center p-4 font-sans">
   <div class="w-full max-w-lg bg-[#212121] rounded-2xl shadow-xl overflow-hidden">
-    <div class="p-8 md:p-12 flex flex-col justify-center">
-      <div class="max-w-md mx-auto w-full">
+    <div class="flex flex-col justify-center p-8 md:p-12">
+      <div class="w-full max-w-md mx-auto">
 
         <!-- Header -->
         <div class="mb-10 text-center">
@@ -28,7 +28,7 @@
         </div>
 
         <!-- Error -->
-        <div id="auth-error" class="hidden mb-4 px-4 py-3 bg-red-900/20 border border-red-500/30 text-red-700 text-sm rounded-lg"></div>
+        <div id="auth-error" class="hidden px-4 py-3 mb-4 text-sm text-red-700 border rounded-lg bg-red-900/20 border-red-500/30"></div>
 
         <!-- Form -->
         <form id="auth-form" class="space-y-5" onsubmit="handleAuthSubmit(event)">
@@ -121,8 +121,16 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
       });
-      const data = await res.json();
-      if (!data.success) {
+      const raw = await res.text();
+      let data = {};
+      try {
+        data = raw ? JSON.parse(raw) : {};
+      } catch {
+        showError("Server returned an invalid response. Please try again.");
+        return;
+      }
+
+      if (!res.ok || !data.success) {
         showError(data.message || "Something went wrong.");
       } else {
         window.location.href = "/app";

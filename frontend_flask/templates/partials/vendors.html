@@ -77,7 +77,7 @@ function renderVendors() {
     </tr>`).join("");
 }
 
-function addVendor() {
+async function addVendor() {
   const input = document.getElementById("vendor-input");
   const name = input.value.trim();
   if (!name) return;
@@ -85,13 +85,46 @@ function addVendor() {
     alert("This vendor is already in the trusted list.");
     return;
   }
-  trustedVendors.push(name);
-  input.value = "";
-  renderVendors();
+
+  try {
+    const res = await fetch("/api/vendors", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      alert(data.message || "Failed to add vendor.");
+      return;
+    }
+
+    trustedVendors = data.vendors || trustedVendors;
+    input.value = "";
+    renderVendors();
+  } catch (err) {
+    console.error("Add vendor error:", err);
+    alert("Failed to add vendor.");
+  }
 }
 
-function removeVendor(name) {
-  trustedVendors = trustedVendors.filter(v => v !== name);
-  renderVendors();
+async function removeVendor(name) {
+  try {
+    const res = await fetch(`/api/vendors/${encodeURIComponent(name)}`, {
+      method: "DELETE",
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      alert(data.message || "Failed to remove vendor.");
+      return;
+    }
+
+    trustedVendors = data.vendors || trustedVendors.filter(
+      v => String(v ?? "").toLowerCase() !== String(name ?? "").toLowerCase()
+    );
+    renderVendors();
+  } catch (err) {
+    console.error("Remove vendor error:", err);
+    alert("Failed to remove vendor.");
+  }
 }
 </script>

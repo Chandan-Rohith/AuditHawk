@@ -1,6 +1,6 @@
 <!-- ═══════════════════ HISTORY VIEW ═══════════════════ -->
 <div id="view-history" class="hidden">
-  <div class="flex flex-wrap justify-between items-end gap-6 mb-10">
+  <div class="flex flex-wrap items-end justify-between gap-6 mb-10">
     <div>
       <h1 class="text-4xl font-black text-white">Audit History</h1>
       <p class="text-[#777777] mt-2">Review and manage your past audit reports and flagged transactions.</p>
@@ -8,12 +8,12 @@
   </div>
   <!-- Empty -->
   <div id="history-empty" class="flex flex-col items-center justify-center mt-24 text-[#555555]">
-    <div class="text-6xl mb-4">📂</div>
+    <div class="mb-4 text-6xl">📂</div>
     <p class="text-lg font-medium">No audit history yet</p>
-    <p class="text-sm mt-1">Upload and analyze transactions to see results here.</p>
+    <p class="mt-1 text-sm">Upload and analyze transactions to see results here.</p>
   </div>
   <!-- Grid -->
-  <div id="history-grid" class="hidden grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"></div>
+  <div id="history-grid" class="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"></div>
 </div>
 
 <script>
@@ -30,23 +30,23 @@ function renderHistory() {
   }
   emptyEl.classList.add("hidden");
   grid.classList.remove("hidden");
-  grid.innerHTML = history.map(s => `
-    <div onclick="openSession(${s.id})"
+  grid.innerHTML = history.map((s, i) => `
+    <div data-session-index="${i}"
          class="group bg-[#212121] p-6 rounded-xl border border-[#3D3D3D] shadow-sm hover:shadow-lg hover:border-[#FF6B35]/40 transition-all cursor-pointer">
-      <div class="flex justify-between items-center mb-4">
+      <div class="flex items-center justify-between mb-4">
         <div class="bg-[#FF6B35]/10 p-2 rounded-lg"><span class="text-[#FF6B35] text-sm font-bold">CSV</span></div>
         <span class="text-xs text-[#555555]">${s.date}</span>
       </div>
       <h3 class="font-bold text-white truncate group-hover:text-[#FF6B35] transition-colors">${s.fileName}</h3>
       <div class="mt-6 space-y-4">
-        <div class="flex justify-between items-center text-sm">
+        <div class="flex items-center justify-between text-sm">
           <span class="text-[#777777]">Fraud Count</span>
-          <span class="font-semibold px-2 py-0.5 rounded ${s.frauds.length > 0 ? 'bg-red-900/20 text-red-600' : 'bg-green-900/20 text-[#00D4AA]'}">
-            ${s.frauds.length} Flagged
+          <span class="font-semibold px-2 py-0.5 rounded ${s.flaggedCount > 0 ? 'bg-red-900/20 text-red-600' : 'bg-green-900/20 text-[#00D4AA]'}">
+            ${s.flaggedCount} Flagged
           </span>
         </div>
         <div>
-          <div class="flex justify-between text-sm mb-1">
+          <div class="flex justify-between mb-1 text-sm">
             <span class="text-[#777777]">Risk Score</span>
             <span class="font-bold text-[#FF6B35]">${s.riskScore}%</span>
           </div>
@@ -56,5 +56,27 @@ function renderHistory() {
         </div>
       </div>
     </div>`).join("");
+
+  if (!grid.dataset.boundHistoryOpen) {
+    grid.addEventListener("click", (event) => {
+      const card = event.target.closest("[data-session-index]");
+      if (!card) {
+        return;
+      }
+
+      const index = Number(card.dataset.sessionIndex);
+      if (!Number.isInteger(index) || index < 0 || index >= history.length) {
+        return;
+      }
+
+      const sessionEntry = history[index];
+      if (!sessionEntry || sessionEntry.id == null) {
+        return;
+      }
+
+      openSession(String(sessionEntry.id));
+    });
+    grid.dataset.boundHistoryOpen = "true";
+  }
 }
 </script>

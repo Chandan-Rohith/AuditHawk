@@ -6,7 +6,7 @@
 
   {% include "partials/navbar.html" %}
 
-  <main class="max-w-7xl mx-auto px-6 py-8">
+  <main class="px-6 py-8 mx-auto max-w-7xl">
     {% include "partials/dashboard.html" %}
     {% include "partials/vendors.html" %}
     {% include "partials/history.html" %}
@@ -33,6 +33,7 @@ let trustedVendors = [];
 let selectedFile = null;
 let activeView = "dashboard";
 let doughnutChart = null;
+let activeReportId = null;
 
 // ── view switching ──
 function switchView(view, reset) {
@@ -44,6 +45,7 @@ function switchView(view, reset) {
     transactions = [];
     frauds = [];
     riskScore = 0;
+    activeReportId = null;
     renderDashboard();
   }
   if (view === "vendors") renderVendors();
@@ -56,7 +58,50 @@ async function handleLogout() {
   window.location.href = "/auth";
 }
 
+async function bootstrapData() {
+  try {
+    const [vendorsRes, reportsRes] = await Promise.all([
+      fetch("/api/vendors"),
+      fetch("/api/reports"),
+    ]);
+
+    if (!vendorsRes.ok) {
+      throw new Error(`Failed to load vendors (status ${vendorsRes.status})`);
+    }
+    if (!reportsRes.ok) {
+      throw new Error(`Failed to load reports (status ${reportsRes.status})`);
+    }
+
+    const vendorsData = await vendorsRes.json();
+    const reportsData = await reportsRes.json();
+
+    trustedVendors = vendorsData.vendors || [];
+
+    history = (reportsData.reports || []).map((r) => {
+      const total = Number(r.totalTransactions || 0);
+      const flagged = Number(r.flaggedCount || 0);
+      return {
+        id: r.id,
+        fileName: r.fileName,
+        uploadedAt: r.uploadedAt,
+        date: r.uploadedAt ? new Date(r.uploadedAt).toLocaleDateString() : "",
+        totalTransactions: total,
+        flaggedCount: flagged,
+        riskScore: total ? Math.round((flagged / total) * 100) : 0,
+      };
+    });
+
+    switchView("dashboard", true);
+
+    renderHistory();
+    renderVendors();
+  } catch (err) {
+    console.error("Bootstrap error:", err);
+    renderDashboard();
+  }
+}
+
 /* ═══════════════════ INIT ═══════════════════ */
-renderDashboard();
+bootstrapData();
 </script>
 {% endblock %}

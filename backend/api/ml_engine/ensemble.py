@@ -46,6 +46,7 @@ def run_pipeline(
     raw_records: list[dict[str, Any]],
     report_id: str,
     trusted_vendors: list[str] | None = None,
+    amount_threshold: float | None = None,
 ) -> list[dict[str, Any]]:
     """
     End-to-end unsupervised fraud-detection pipeline.
@@ -59,6 +60,9 @@ def run_pipeline(
         Mongo ObjectId string of the parent audit report.
     trusted_vendors : list[str] | None
         HITL whitelist loaded from MongoDB.
+    amount_threshold : float | None
+        Optional user-defined amount threshold. Any transaction with
+        amount above this value is included in anomalies.
 
     Returns
     -------
@@ -102,12 +106,27 @@ def run_pipeline(
         threshold = df["total_risk_index"].quantile(1 - TOP_PERCENTILE)
     anomalies = df[df["total_risk_index"] > threshold].copy()
 
+    if amount_threshold is not None and amount_threshold > 0:
+        high_amount_df = df[df["amount"].astype(float) > float(amount_threshold)].copy()
+        if anomalies.empty:
+            anomalies = high_amount_df
+        elif not high_amount_df.empty:
+            anomalies = pd.concat([anomalies, high_amount_df], ignore_index=False)
+            anomalies = anomalies.drop_duplicates(subset=["transaction_id"], keep="first")
+
     if anomalies.empty:
         return []
 
     # ── 6. Explanations ─────────────────────────────────
     explanations = generate_explanations(anomalies)
     anomalies["explanation"] = explanations
+
+    if amount_threshold is not None and amount_threshold > 0:
+        threshold_note = f"Amount exceeds user threshold ({float(amount_threshold):.2f})."
+        high_amount_mask = anomalies["amount"].astype(float) > float(amount_threshold)
+        anomalies.loc[high_amount_mask, "explanation"] = anomalies.loc[
+            high_amount_mask, "explanation"
+        ].apply(lambda text: f"{threshold_note} {text}".strip())
 
     # ── 7. Build output dicts ───────────────────────────
     results: list[dict[str, Any]] = []

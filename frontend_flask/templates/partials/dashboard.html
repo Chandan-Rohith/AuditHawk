@@ -103,16 +103,7 @@
         <span class="text-xs font-bold text-[#FF6B35] uppercase" id="fraud-count-label">0 Items Pending</span>
       </div>
       <table class="w-full text-left text-sm">
-        <thead class="bg-[#2D2D2D] text-xs uppercase font-bold text-[#777777]">
-          <tr>
-            <th class="px-6 py-3">Transaction</th>
-            <th class="px-6 py-3">Merchant</th>
-            <th class="px-6 py-3">Amount</th>
-            <th class="px-6 py-3">Category</th>
-            <th class="px-6 py-3">Reason</th>
-            <th class="px-6 py-3 text-right">Actions</th>
-          </tr>
-        </thead>
+        <thead id="fraud-thead" class="bg-[#2D2D2D] text-xs uppercase font-bold text-[#777777]"></thead>
         <tbody id="fraud-tbody"></tbody>
       </table>
     </div>
@@ -121,6 +112,19 @@
 
 <script>
 /* ═══════════════════ DASHBOARD JS ═══════════════════ */
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function escapeAttr(value) {
+  return escapeHtml(value).replace(/`/g, "&#96;");
+}
 
 function renderDashboard() {
   const total = transactions.length;
@@ -165,27 +169,135 @@ function renderChart(legit, flagged) {
 }
 
 function renderFraudTable() {
+  const thead = document.getElementById("fraud-thead");
   const tbody = document.getElementById("fraud-tbody");
-  document.getElementById("fraud-count-label").textContent = frauds.length + " Items Pending";
-  tbody.innerHTML = frauds.map(tx => `
-    <tr class="border-t hover:bg-[#2D2D2D]">
-      <td class="px-6 py-4 font-mono">${tx.transaction_id || "TX-" + tx.id}</td>
-      <td class="px-6 py-4">${tx.merchant || "—"}</td>
-      <td class="px-6 py-4 font-bold">$${tx.amount}</td>
-      <td class="px-6 py-4 text-xs">${tx.category || "—"}</td>
-      <td class="px-6 py-4 text-xs text-[#FF6B35]">${tx.reason}</td>
+  const pendingCount = frauds.filter(f => f.status !== "rejected" && f.status !== "approved").length;
+  document.getElementById("fraud-count-label").textContent = pendingCount + " Items Pending";
+
+  const transactionById = new Map();
+  transactions.forEach((tx) => {
+    if (tx && tx.transaction_id != null) {
+      transactionById.set(String(tx.transaction_id), tx);
+    }
+    if (tx && tx.id != null) {
+      transactionById.set(String(tx.id), tx);
+    }
+  });
+
+  const rows = frauds.map(fraud => {
+    const fraudKey = fraud.transaction_id ?? fraud.id;
+    const source = fraudKey != null ? (transactionById.get(String(fraudKey)) || {}) : {};
+    return {
+      ...fraud,
+      merchant: source.merchant || fraud.merchant || "",
+      category: source.category || fraud.category || "",
+      account_id: source.account_id || fraud.account_id || "",
+      date: source.date || fraud.date || "",
+      action_id: fraud.transaction_id ?? fraud.id ?? "",
+    };
+  });
+
+  const isMeaningful = (value) => {
+    const text = String(value || "").trim().toLowerCase();
+    return text && !["—", "n/a", "na", "unknown", "unknown vendor", "null", "none", "-"] .includes(text);
+  };
+
+  const optionalColumns = [
+    { key: "date", label: "Date" },
+    { key: "merchant", label: "Merchant" },
+    { key: "category", label: "Category" },
+    { key: "account_id", label: "Account" },
+  ];
+
+  const visibleColumns = optionalColumns.filter(col => rows.some(row => isMeaningful(row[col.key])));
+
+  thead.innerHTML = `
+    <tr>
+      <th class="px-6 py-3">Transaction</th>
+      ${visibleColumns.map(col => `<th class="px-6 py-3">${col.label}</th>`).join("")}
+      <th class="px-6 py-3">Amount</th>
+      <th class="px-6 py-3">Reason</th>
+      <th class="px-6 py-3 text-right">Actions</th>
+    </tr>
+  `;
+
+  tbody.innerHTML = rows.map(tx => {
+    const rowClass = tx.status === "rejected" ? "opacity-60" : "hover:bg-[#2D2D2D]";
+    const textClass = tx.status === "rejected" ? "line-through" : "";
+    const transactionLabel = escapeHtml(tx.transaction_id || ("TX-" + tx.id));
+    const explanation = tx.explanation || (tx.risk_score ? `Risk score ${tx.risk_score}` : "Flagged by ML");
+    const amountText = Number(tx.amount ?? 0).toString();
+    const actionId = escapeAttr(tx.action_id);
+
+    return `
+    <tr class="border-t ${rowClass}">
+      <td class="px-6 py-4 font-mono ${textClass}">${transactionLabel}</td>
+      ${visibleColumns.map(col => {
+        const value = isMeaningful(tx[col.key]) ? tx[col.key] : "—";
+        return `<td class="px-6 py-4 ${textClass}">${escapeHtml(value)}</td>`;
+      }).join("")}
+      <td class="px-6 py-4 font-bold ${textClass}">$${escapeHtml(amountText)}</td>
+      <td class="px-6 py-4 text-xs text-[#FF6B35] ${textClass}" title="${escapeAttr(explanation)}">
+        ${escapeHtml(explanation)}
+      </td>
       <td class="px-6 py-4 text-right space-x-2">
-        <button onclick="fraudAction(${tx.id},'accepted')"
+        <button data-tx-id="${actionId}" data-action="approved"
                 class="px-3 py-1 bg-[#FF6B35] text-white rounded text-xs font-bold">Accept</button>
-        <button onclick="fraudAction(${tx.id},'rejected')"
+        <button data-tx-id="${actionId}" data-action="rejected"
                 class="px-3 py-1 border text-[#777777] rounded text-xs font-bold">Reject</button>
       </td>
-    </tr>`).join("");
+    </tr>`;
+  }).join("");
+
+  if (!tbody.dataset.boundActions) {
+    tbody.addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-action][data-tx-id]");
+      if (!button) {
+        return;
+      }
+      const txId = button.dataset.txId;
+      const action = button.dataset.action;
+      if (!txId || !action) {
+        return;
+      }
+      fraudAction(txId, action);
+    });
+    tbody.dataset.boundActions = "true";
+  }
 }
 
-function fraudAction(id, status) {
-  frauds = frauds.map(tx => tx.id === id ? { ...tx, status } : tx);
-  renderDashboard();
+async function fraudAction(transactionId, decision) {
+  if (!activeReportId) {
+    alert("No active report selected.");
+    return;
+  }
+
+  try {
+    const res = await fetch("/api/flagged/decision", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        reportId: activeReportId,
+        transactionId,
+        decision,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      alert(data.message || "Failed to update decision.");
+      return;
+    }
+
+    frauds = frauds.map(tx =>
+      (String(tx.transaction_id ?? "") === String(transactionId) || String(tx.id ?? "") === String(transactionId))
+        ? { ...tx, status: decision, decision }
+        : tx
+    );
+    renderDashboard();
+  } catch (err) {
+    console.error("Decision update error:", err);
+    alert("Failed to update decision.");
+  }
 }
 
 /* ═══════════════════ PDF DOWNLOAD ═══════════════════ */

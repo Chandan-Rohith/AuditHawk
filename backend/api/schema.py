@@ -7,7 +7,6 @@ from django.utils import timezone
 from datetime import datetime, timedelta
 from pymongo import ReturnDocument
 from .csv_parser import parse_transaction_csv, CSVParserError
-from .ml_engine.ensemble import run_pipeline
 
 from .db import (
     audit_reports_col, transactions_col, flagged_transactions_col,
@@ -18,6 +17,40 @@ from .db import (
 JWT_SECRET = settings.SECRET_KEY
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRATION_HOURS = 24
+
+
+def run_pipeline(transactions, report_id, trusted, amount_threshold=None):
+    from .ml_engine.ensemble import run_pipeline as _run_pipeline
+    return _run_pipeline(
+        transactions,
+        report_id,
+        trusted,
+        amount_threshold=amount_threshold,
+    )
+
+
+def get_current_user_id(info):
+    request = info.context
+    auth_header = ""
+
+    if hasattr(request, "headers"):
+        auth_header = request.headers.get("Authorization", "")
+    if not auth_header and hasattr(request, "META"):
+        auth_header = request.META.get("HTTP_AUTHORIZATION", "")
+
+    if not auth_header or not auth_header.startswith("Bearer "):
+        return None
+
+    token = auth_header.split(" ", 1)[1].strip()
+    if not token:
+        return None
+
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        user_id = payload.get("user_id")
+        return str(user_id) if user_id is not None else None
+    except Exception:
+        return None
 
 
 def generate_jwt(user):
@@ -98,9 +131,14 @@ class Query(graphene.ObjectType):
         report_id=graphene.ID(required=True)
     )
     dashboard_summary = graphene.Field(DashboardSummaryType)
+    trusted_vendors = graphene.List(graphene.String)
 
     def resolve_audit_reports(root, info):
-        reports = audit_reports_col.find()
+        user_id = get_current_user_id(info)
+        if not user_id:
+            return []
+
+        reports = audit_reports_col.find({"user_id": user_id})
         return [
             AuditReportType(
                 id=str(r["_id"]),
@@ -115,7 +153,11 @@ class Query(graphene.ObjectType):
 
 
     def resolve_transactions(root, info, report_id):
-        transactions = transactions_col.find({"report_id": report_id})
+        user_id = get_current_user_id(info)
+        if not user_id:
+            return []
+
+        transactions = transactions_col.find({"report_id": report_id, "user_id": user_id})
         return [
             TransactionType(
                 id=str(txn["_id"]),
@@ -130,7 +172,11 @@ class Query(graphene.ObjectType):
         ]
 
     def resolve_flagged_transactions(root, info, report_id):
-        transactions = flagged_transactions_col.find({"report_id": report_id})
+        user_id = get_current_user_id(info)
+        if not user_id:
+            return []
+
+        transactions = flagged_transactions_col.find({"report_id": report_id, "user_id": user_id})
         return [
             FlaggedTransactionType(
                 id=str(txn["_id"]),
@@ -144,7 +190,17 @@ class Query(graphene.ObjectType):
         ]
 
     def resolve_dashboard_summary(root, info):
-        reports = list(audit_reports_col.find())
+        user_id = get_current_user_id(info)
+        if not user_id:
+            return DashboardSummaryType(
+                total_reports=0,
+                total_transactions=0,
+                total_flagged=0,
+                processing_count=0,
+                completed_count=0,
+            )
+
+        reports = list(audit_reports_col.find({"user_id": user_id}))
         
         total_reports = len(reports)
         total_transactions = sum(report.get("total_transactions", 0) for report in reports)
@@ -159,6 +215,13 @@ class Query(graphene.ObjectType):
             processing_count=processing_count,
             completed_count=completed_count
         )
+
+    def resolve_trusted_vendors(root, info):
+        user_id = get_current_user_id(info)
+        if not user_id:
+            return []
+
+        return get_trusted_vendors()
 
 
 
@@ -180,10 +243,11 @@ class UploadAuditFile(graphene.Mutation):
     class Arguments:
         file_name = graphene.String(required=True)
         csv_content = graphene.String(required=True)
+        threshold_limit = graphene.Float(required=False)
 
     Output = UploadAuditFileResponse
 
-    def mutate(root, info, file_name, csv_content):
+    def mutate(root, info, file_name, csv_content, threshold_limit=None):
         """
         Parse CSV content, validate it, and create an audit report.
         
@@ -194,6 +258,18 @@ class UploadAuditFile(graphene.Mutation):
         Returns:
             UploadAuditFileResponse with success status, message, and report
         """
+        user_id = get_current_user_id(info)
+        if not user_id:
+            return UploadAuditFileResponse(
+                success=False,
+                message="Authentication required",
+                report=None
+            )
+
+        effective_threshold = None
+        if threshold_limit is not None and threshold_limit > 0:
+            effective_threshold = float(threshold_limit)
+
         try:
             # Parse and validate CSV content using csv_parser
             transactions, summary = parse_transaction_csv(csv_content)
@@ -204,7 +280,9 @@ class UploadAuditFile(graphene.Mutation):
                 "uploaded_at": datetime.utcnow().isoformat(),
                 "total_transactions": summary['total_transactions'],
                 "flagged_count": 0,  # Will be updated after ML analysis
-                "status": "processing"
+                "status": "processing",
+                "user_id": user_id,
+                "threshold_limit": effective_threshold,
             }
             
             # Insert report into MongoDB
@@ -214,13 +292,21 @@ class UploadAuditFile(graphene.Mutation):
             # Store transactions in MongoDB with report_id reference
             for txn in transactions:
                 txn['report_id'] = report_id
+                txn['user_id'] = user_id
             transactions_col.insert_many(transactions)
 
             # ── Run ML ensemble pipeline automatically ──────────
             try:
                 trusted = get_trusted_vendors()
-                flagged_docs = run_pipeline(transactions, report_id, trusted)
+                flagged_docs = run_pipeline(
+                    transactions,
+                    report_id,
+                    trusted,
+                    amount_threshold=effective_threshold,
+                )
                 if flagged_docs:
+                    for flagged in flagged_docs:
+                        flagged["user_id"] = user_id
                     flagged_transactions_col.insert_many(flagged_docs)
                 flagged_count = len(flagged_docs)
                 audit_reports_col.update_one(
@@ -231,10 +317,36 @@ class UploadAuditFile(graphene.Mutation):
                 new_report["status"] = "completed"
             except Exception as ml_err:
                 # ML failure should not break the upload
+                fallback_flagged = []
+                if effective_threshold is not None:
+                    fallback_flagged = [
+                        {
+                            "report_id": report_id,
+                            "transaction_id": txn.get("transaction_id", ""),
+                            "amount": float(txn.get("amount", 0) or 0),
+                            "risk_score": 1.0,
+                            "decision": "review_required",
+                            "explanation": f"Amount exceeds user threshold ({effective_threshold:.2f}).",
+                            "user_id": user_id,
+                        }
+                        for txn in transactions
+                        if float(txn.get("amount", 0) or 0) > effective_threshold
+                    ]
+
+                if fallback_flagged:
+                    flagged_transactions_col.insert_many(fallback_flagged)
+
                 audit_reports_col.update_one(
                     {"_id": result.inserted_id},
-                    {"$set": {"status": "completed", "ml_error": str(ml_err)}},
+                    {
+                        "$set": {
+                            "status": "completed",
+                            "ml_error": str(ml_err),
+                            "flagged_count": len(fallback_flagged),
+                        }
+                    },
                 )
+                new_report["flagged_count"] = len(fallback_flagged)
                 new_report["status"] = "completed"
 
             return UploadAuditFileResponse(
@@ -283,6 +395,14 @@ class UpdateTransactionDecision(graphene.Mutation):
     Output = UpdateTransactionDecisionResponse
     
     def mutate(root, info, report_id, transaction_id, decision):
+        user_id = get_current_user_id(info)
+        if not user_id:
+            return UpdateTransactionDecisionResponse(
+                success=False,
+                message="Authentication required",
+                transaction=None
+            )
+
         # Validate decision
         valid_decisions = ['approved', 'rejected', 'escalate', 'review_required', 'monitor']
         if decision not in valid_decisions:
@@ -294,7 +414,7 @@ class UpdateTransactionDecision(graphene.Mutation):
         
         # Find and update the flagged transaction in MongoDB
         result = flagged_transactions_col.find_one_and_update(
-            {"report_id": report_id, "transaction_id": transaction_id},
+            {"report_id": report_id, "transaction_id": transaction_id, "user_id": user_id},
             {"$set": {"decision": decision}},
             return_document=ReturnDocument.AFTER
         )
@@ -422,32 +542,49 @@ class AnalyzeReport(graphene.Mutation):
 
     def mutate(root, info, report_id):
         from bson import ObjectId
-        report = audit_reports_col.find_one({"_id": ObjectId(report_id)})
+        user_id = get_current_user_id(info)
+        if not user_id:
+            return AnalyzeReportResponse(success=False, message="Authentication required", flagged_count=0)
+
+        report = audit_reports_col.find_one({"_id": ObjectId(report_id), "user_id": user_id})
         if not report:
             return AnalyzeReportResponse(success=False, message="Report not found", flagged_count=0)
 
-        txns = list(transactions_col.find({"report_id": report_id}))
+        txns = list(transactions_col.find({"report_id": report_id, "user_id": user_id}))
         if not txns:
             return AnalyzeReportResponse(success=False, message="No transactions for this report", flagged_count=0)
 
         # Clear previous flags
-        flagged_transactions_col.delete_many({"report_id": report_id})
+        flagged_transactions_col.delete_many({"report_id": report_id, "user_id": user_id})
+        try:
+            trusted = get_trusted_vendors()
+            flagged_docs = run_pipeline(
+                txns,
+                report_id,
+                trusted,
+                amount_threshold=report.get("threshold_limit"),
+            )
+            if flagged_docs:
+                for flagged in flagged_docs:
+                    flagged["user_id"] = user_id
+                flagged_transactions_col.insert_many(flagged_docs)
 
-        trusted = get_trusted_vendors()
-        flagged_docs = run_pipeline(txns, report_id, trusted)
-        if flagged_docs:
-            flagged_transactions_col.insert_many(flagged_docs)
+            audit_reports_col.update_one(
+                {"_id": ObjectId(report_id)},
+                {"$set": {"flagged_count": len(flagged_docs), "status": "completed"}},
+            )
 
-        audit_reports_col.update_one(
-            {"_id": ObjectId(report_id)},
-            {"$set": {"flagged_count": len(flagged_docs), "status": "completed"}},
-        )
-
-        return AnalyzeReportResponse(
-            success=True,
-            message=f"Re-analysis complete: {len(flagged_docs)} anomalies detected",
-            flagged_count=len(flagged_docs),
-        )
+            return AnalyzeReportResponse(
+                success=True,
+                message=f"Re-analysis complete: {len(flagged_docs)} anomalies detected",
+                flagged_count=len(flagged_docs),
+            )
+        except Exception as ml_err:
+            return AnalyzeReportResponse(
+                success=False,
+                message=f"Re-analysis failed: {ml_err}",
+                flagged_count=0,
+            )
 
 
 # ============================================
