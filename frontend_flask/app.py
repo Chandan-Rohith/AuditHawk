@@ -5,10 +5,7 @@ Serves Jinja2-rendered pages and proxies auth requests to the Django GraphQL bac
 
 import os
 import requests as http_requests
-from flask import (
-    Flask, render_template, request, redirect,
-    url_for, session, jsonify, flash
-)
+from flask import Flask, render_template, request, redirect, url_for, session, jsonify
 from dotenv import load_dotenv
 from werkzeug.utils import secure_filename
 

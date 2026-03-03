@@ -9,7 +9,7 @@ from pymongo import ReturnDocument
 from .csv_parser import parse_transaction_csv, CSVParserError
 
 from .db import (
-    audit_reports_col, transactions_col, flagged_transactions_col,
+    audit_reports_col, transactions_col, transaction_batches_col,
     users_col, trusted_vendors_col,
     get_trusted_vendors, add_trusted_vendor, remove_trusted_vendor,
 )
@@ -156,37 +156,41 @@ class Query(graphene.ObjectType):
         user_id = get_current_user_id(info)
         if not user_id:
             return []
-
-        transactions = transactions_col.find({"report_id": report_id, "user_id": user_id})
+        # Read batch document for this report and return its transactions
+        batch = transaction_batches_col.find_one({"report_id": report_id, "user_id": user_id})
+        if not batch or "transactions" not in batch:
+            return []
         return [
             TransactionType(
-                id=str(txn["_id"]),
-                transaction_id=txn["transaction_id"],
-                date=txn["date"],
-                amount=txn["amount"],
-                merchant=txn["merchant"],
-                category=txn["category"],
-                account_id=txn["account_id"]
+                id=txn.get("_id") and str(txn.get("_id")) or txn.get("transaction_id"),
+                transaction_id=txn.get("transaction_id"),
+                date=txn.get("date"),
+                amount=txn.get("amount"),
+                merchant=txn.get("merchant"),
+                category=txn.get("category"),
+                account_id=txn.get("account_id"),
             )
-            for txn in transactions
+            for txn in batch["transactions"]
         ]
 
     def resolve_flagged_transactions(root, info, report_id):
         user_id = get_current_user_id(info)
         if not user_id:
             return []
-
-        transactions = flagged_transactions_col.find({"report_id": report_id, "user_id": user_id})
+        batch = transaction_batches_col.find_one({"report_id": report_id, "user_id": user_id})
+        if not batch or "transactions" not in batch:
+            return []
+        flagged = [t for t in batch["transactions"] if t.get("flagged")]
         return [
             FlaggedTransactionType(
-                id=str(txn["_id"]),
-                transaction_id=txn["transaction_id"],
-                amount=txn["amount"],
-                risk_score=txn["risk_score"],
-                decision=txn["decision"],
-                explanation=txn["explanation"]
+                id=t.get("_id") and str(t.get("_id")) or t.get("transaction_id"),
+                transaction_id=t.get("transaction_id"),
+                amount=t.get("amount"),
+                risk_score=t.get("risk_score"),
+                decision=t.get("decision"),
+                explanation=t.get("explanation"),
             )
-            for txn in transactions
+            for t in flagged
         ]
 
     def resolve_dashboard_summary(root, info):
@@ -278,6 +282,7 @@ class UploadAuditFile(graphene.Mutation):
             new_report = {
                 "file_name": file_name,
                 "uploaded_at": datetime.utcnow().isoformat(),
+                "csv_content": csv_content,
                 "total_transactions": summary['total_transactions'],
                 "flagged_count": 0,  # Will be updated after ML analysis
                 "status": "processing",
@@ -289,11 +294,18 @@ class UploadAuditFile(graphene.Mutation):
             result = audit_reports_col.insert_one(new_report)
             report_id = str(result.inserted_id)
             
-            # Store transactions in MongoDB with report_id reference
+            # Store transactions as one batch document (one document per uploaded CSV)
             for txn in transactions:
                 txn['report_id'] = report_id
                 txn['user_id'] = user_id
-            transactions_col.insert_many(transactions)
+                txn['flagged'] = False
+            batch_doc = {
+                "report_id": report_id,
+                "user_id": user_id,
+                "transactions": transactions,
+                "created_at": datetime.utcnow().isoformat(),
+            }
+            batch_result = transaction_batches_col.insert_one(batch_doc)
 
             # ── Run ML ensemble pipeline automatically ──────────
             try:
@@ -307,7 +319,27 @@ class UploadAuditFile(graphene.Mutation):
                 if flagged_docs:
                     for flagged in flagged_docs:
                         flagged["user_id"] = user_id
-                    flagged_transactions_col.insert_many(flagged_docs)
+                        flagged["report_id"] = report_id
+                        flagged["flagged"] = True
+                        if "flagged_at" not in flagged:
+                            flagged["flagged_at"] = datetime.utcnow()
+                        # Update the matching transaction inside the batch's transactions array
+                        update_result = transaction_batches_col.update_one(
+                            {"report_id": report_id, "user_id": user_id, "transactions.transaction_id": flagged.get("transaction_id")},
+                            {"$set": {
+                                "transactions.$.flagged": True,
+                                "transactions.$.risk_score": flagged.get("risk_score"),
+                                "transactions.$.decision": flagged.get("decision"),
+                                "transactions.$.explanation": flagged.get("explanation"),
+                                "transactions.$.flagged_at": flagged.get("flagged_at"),
+                            }}
+                        )
+                        # If no matching transaction was found, push it into the batch transactions
+                        if update_result.matched_count == 0:
+                            transaction_batches_col.update_one(
+                                {"report_id": report_id, "user_id": user_id},
+                                {"$push": {"transactions": flagged}}
+                            )
                 flagged_count = len(flagged_docs)
                 audit_reports_col.update_one(
                     {"_id": result.inserted_id},
@@ -334,7 +366,25 @@ class UploadAuditFile(graphene.Mutation):
                     ]
 
                 if fallback_flagged:
-                    flagged_transactions_col.insert_many(fallback_flagged)
+                    for flagged in fallback_flagged:
+                        flagged["flagged"] = True
+                        if "flagged_at" not in flagged:
+                            flagged["flagged_at"] = datetime.utcnow()
+                        update_result = transaction_batches_col.update_one(
+                            {"report_id": report_id, "user_id": user_id, "transactions.transaction_id": flagged.get("transaction_id")},
+                            {"$set": {
+                                "transactions.$.flagged": True,
+                                "transactions.$.risk_score": flagged.get("risk_score"),
+                                "transactions.$.decision": flagged.get("decision"),
+                                "transactions.$.explanation": flagged.get("explanation"),
+                                "transactions.$.flagged_at": flagged.get("flagged_at"),
+                            }}
+                        )
+                        if update_result.matched_count == 0:
+                            transaction_batches_col.update_one(
+                                {"report_id": report_id, "user_id": user_id},
+                                {"$push": {"transactions": flagged}}
+                            )
 
                 audit_reports_col.update_one(
                     {"_id": result.inserted_id},
@@ -412,30 +462,48 @@ class UpdateTransactionDecision(graphene.Mutation):
                 transaction=None
             )
         
-        # Find and update the flagged transaction in MongoDB
-        result = flagged_transactions_col.find_one_and_update(
-            {"report_id": report_id, "transaction_id": transaction_id, "user_id": user_id},
-            {"$set": {"decision": decision}},
-            return_document=ReturnDocument.AFTER
-        )
-        
-        if not result:
+        # Find the batch containing this transaction and update the decision on the array element
+        batch = transaction_batches_col.find_one({"report_id": report_id, "user_id": user_id, "transactions.transaction_id": transaction_id})
+        if not batch:
             return UpdateTransactionDecisionResponse(
                 success=False,
                 message=f"Transaction {transaction_id} not found in report {report_id}",
                 transaction=None
             )
-        
+
+        # Find the transaction in-memory
+        txns = batch.get("transactions", [])
+        target = None
+        for t in txns:
+            if t.get("transaction_id") == transaction_id and t.get("flagged"):
+                target = t
+                break
+
+        if not target:
+            return UpdateTransactionDecisionResponse(
+                success=False,
+                message=f"Flagged transaction {transaction_id} not found in report {report_id}",
+                transaction=None
+            )
+
+        # Update the array element's decision
+        transaction_batches_col.update_one(
+            {"_id": batch["_id"], "transactions.transaction_id": transaction_id},
+            {"$set": {"transactions.$.decision": decision}}
+        )
+
+        # Reflect change in returned object
+        target["decision"] = decision
         return UpdateTransactionDecisionResponse(
             success=True,
             message=f"Transaction decision updated to '{decision}'",
             transaction=FlaggedTransactionType(
-                id=str(result["_id"]),
-                transaction_id=result["transaction_id"],
-                amount=result["amount"],
-                risk_score=result["risk_score"],
-                decision=result["decision"],
-                explanation=result["explanation"]
+                id=target.get("_id") and str(target.get("_id")) or target.get("transaction_id"),
+                transaction_id=target.get("transaction_id"),
+                amount=target.get("amount"),
+                risk_score=target.get("risk_score"),
+                decision=target.get("decision"),
+                explanation=target.get("explanation")
             )
         )
 
@@ -550,12 +618,20 @@ class AnalyzeReport(graphene.Mutation):
         if not report:
             return AnalyzeReportResponse(success=False, message="Report not found", flagged_count=0)
 
-        txns = list(transactions_col.find({"report_id": report_id, "user_id": user_id}))
-        if not txns:
+        batch = transaction_batches_col.find_one({"report_id": report_id, "user_id": user_id})
+        if not batch or not batch.get("transactions"):
             return AnalyzeReportResponse(success=False, message="No transactions for this report", flagged_count=0)
 
-        # Clear previous flags
-        flagged_transactions_col.delete_many({"report_id": report_id, "user_id": user_id})
+        # Clear previous flags by cleaning up the transactions in the batch and writing back
+        txns = batch.get("transactions", [])
+        for t in txns:
+            if t.get("flagged"):
+                t["flagged"] = False
+                t.pop("risk_score", None)
+                t.pop("decision", None)
+                t.pop("explanation", None)
+                t.pop("flagged_at", None)
+        transaction_batches_col.update_one({"_id": batch["_id"]}, {"$set": {"transactions": txns}})
         try:
             trusted = get_trusted_vendors()
             flagged_docs = run_pipeline(
@@ -567,7 +643,25 @@ class AnalyzeReport(graphene.Mutation):
             if flagged_docs:
                 for flagged in flagged_docs:
                     flagged["user_id"] = user_id
-                flagged_transactions_col.insert_many(flagged_docs)
+                    flagged["report_id"] = report_id
+                    flagged["flagged"] = True
+                    if "flagged_at" not in flagged:
+                        flagged["flagged_at"] = datetime.utcnow()
+                    update_result = transaction_batches_col.update_one(
+                        {"report_id": report_id, "user_id": user_id, "transactions.transaction_id": flagged.get("transaction_id")},
+                        {"$set": {
+                            "transactions.$.flagged": True,
+                            "transactions.$.risk_score": flagged.get("risk_score"),
+                            "transactions.$.decision": flagged.get("decision"),
+                            "transactions.$.explanation": flagged.get("explanation"),
+                            "transactions.$.flagged_at": flagged.get("flagged_at"),
+                        }}
+                    )
+                    if update_result.matched_count == 0:
+                        transaction_batches_col.update_one(
+                            {"report_id": report_id, "user_id": user_id},
+                            {"$push": {"transactions": flagged}}
+                        )
 
             audit_reports_col.update_one(
                 {"_id": ObjectId(report_id)},
