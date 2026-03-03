@@ -4,17 +4,16 @@ import os
 from django.conf import settings
 from django.contrib.auth import get_user_model, authenticate
 from django.utils import timezone
-try:
-    from google.oauth2 import id_token as google_id_token
-    from google.auth.transport import requests as google_requests
-    GOOGLE_AUTH_AVAILABLE = True
-except Exception:
-    GOOGLE_AUTH_AVAILABLE = False
 from datetime import datetime, timedelta
 from pymongo import ReturnDocument
 from .csv_parser import parse_transaction_csv, CSVParserError
+from .ml_engine.ensemble import run_pipeline
 
-from .db import audit_reports_col, transactions_col, flagged_transactions_col, users_col
+from .db import (
+    audit_reports_col, transactions_col, flagged_transactions_col,
+    users_col, trusted_vendors_col,
+    get_trusted_vendors, add_trusted_vendor, remove_trusted_vendor,
+)
 
 JWT_SECRET = settings.SECRET_KEY
 JWT_ALGORITHM = "HS256"
@@ -216,10 +215,31 @@ class UploadAuditFile(graphene.Mutation):
             for txn in transactions:
                 txn['report_id'] = report_id
             transactions_col.insert_many(transactions)
-            
+
+            # ── Run ML ensemble pipeline automatically ──────────
+            try:
+                trusted = get_trusted_vendors()
+                flagged_docs = run_pipeline(transactions, report_id, trusted)
+                if flagged_docs:
+                    flagged_transactions_col.insert_many(flagged_docs)
+                flagged_count = len(flagged_docs)
+                audit_reports_col.update_one(
+                    {"_id": result.inserted_id},
+                    {"$set": {"flagged_count": flagged_count, "status": "completed"}},
+                )
+                new_report["flagged_count"] = flagged_count
+                new_report["status"] = "completed"
+            except Exception as ml_err:
+                # ML failure should not break the upload
+                audit_reports_col.update_one(
+                    {"_id": result.inserted_id},
+                    {"$set": {"status": "completed", "ml_error": str(ml_err)}},
+                )
+                new_report["status"] = "completed"
+
             return UploadAuditFileResponse(
                 success=True,
-                message=f"Successfully uploaded and parsed {summary['total_transactions']} transactions",
+                message=f"Successfully uploaded and analyzed {summary['total_transactions']} transactions ({new_report['flagged_count']} flagged)",
                 report=AuditReportType(
                     id=report_id,
                     file_name=new_report["file_name"],
@@ -383,58 +403,106 @@ class LoginUser(graphene.Mutation):
         )
 
 
-class GoogleAuth(graphene.Mutation):
+# ============================================
+# ML Re-Analysis Mutation
+# ============================================
+
+class AnalyzeReportResponse(graphene.ObjectType):
+    success = graphene.Boolean()
+    message = graphene.String()
+    flagged_count = graphene.Int()
+
+
+class AnalyzeReport(graphene.Mutation):
+    """Re-run the ML ensemble pipeline on an existing report."""
     class Arguments:
-        id_token = graphene.String(required=True)
+        report_id = graphene.ID(required=True)
 
-    Output = AuthResponse
+    Output = AnalyzeReportResponse
 
-    def mutate(root, info, id_token):
-        if not GOOGLE_AUTH_AVAILABLE:
-            return AuthResponse(success=False, message="Server missing google-auth library.", token=None, user=None)
+    def mutate(root, info, report_id):
+        from bson import ObjectId
+        report = audit_reports_col.find_one({"_id": ObjectId(report_id)})
+        if not report:
+            return AnalyzeReportResponse(success=False, message="Report not found", flagged_count=0)
 
-        try:
-            payload = google_id_token.verify_oauth2_token(
-                id_token,
-                google_requests.Request(),
-                clock_skew_in_seconds=10,
-            )
-        except Exception as e:
-            return AuthResponse(success=False, message=f"Invalid Google token: {str(e)}", token=None, user=None)
+        txns = list(transactions_col.find({"report_id": report_id}))
+        if not txns:
+            return AnalyzeReportResponse(success=False, message="No transactions for this report", flagged_count=0)
 
-        email = payload.get("email")
-        name = payload.get("name")
+        # Clear previous flags
+        flagged_transactions_col.delete_many({"report_id": report_id})
 
-        if not email:
-            return AuthResponse(success=False, message="Google token did not contain email", token=None, user=None)
+        trusted = get_trusted_vendors()
+        flagged_docs = run_pipeline(txns, report_id, trusted)
+        if flagged_docs:
+            flagged_transactions_col.insert_many(flagged_docs)
 
-        User = get_user_model()
-        user, created = User.objects.get_or_create(username=email, defaults={"email": email})
+        audit_reports_col.update_one(
+            {"_id": ObjectId(report_id)},
+            {"$set": {"flagged_count": len(flagged_docs), "status": "completed"}},
+        )
 
-        profile = {
-            "email": email,
-            "provider": "google",
-            "name": name,
-            "last_login": timezone.now().isoformat(),
-        }
-        users_col.update_one({"email": email}, {"$set": profile}, upsert=True)
-
-        token = generate_jwt(user)
-        return AuthResponse(
+        return AnalyzeReportResponse(
             success=True,
-            message="Authenticated via Google",
-            token=token,
-            user=UserType(id=str(user.id), email=email, provider="google", created_at=profile.get("last_login"))
+            message=f"Re-analysis complete: {len(flagged_docs)} anomalies detected",
+            flagged_count=len(flagged_docs),
+        )
+
+
+# ============================================
+# Trusted Vendor Mutations (HITL Masking)
+# ============================================
+
+class TrustedVendorResponse(graphene.ObjectType):
+    success = graphene.Boolean()
+    message = graphene.String()
+    vendors = graphene.List(graphene.String)
+
+
+class AddTrustedVendor(graphene.Mutation):
+    class Arguments:
+        name = graphene.String(required=True)
+
+    Output = TrustedVendorResponse
+
+    def mutate(root, info, name):
+        ok = add_trusted_vendor(name)
+        vendors = get_trusted_vendors()
+        return TrustedVendorResponse(
+            success=ok,
+            message=f"'{name}' added to trusted vendors" if ok else "Invalid vendor name",
+            vendors=vendors,
+        )
+
+
+class RemoveTrustedVendor(graphene.Mutation):
+    class Arguments:
+        name = graphene.String(required=True)
+
+    Output = TrustedVendorResponse
+
+    def mutate(root, info, name):
+        ok = remove_trusted_vendor(name)
+        vendors = get_trusted_vendors()
+        return TrustedVendorResponse(
+            success=ok,
+            message=f"'{name}' removed from trusted vendors" if ok else "Vendor not found",
+            vendors=vendors,
         )
 
 
 class Mutation(graphene.ObjectType):
     upload_audit_file = UploadAuditFile.Field()
     update_transaction_decision = UpdateTransactionDecision.Field()
+    # ML pipeline
+    analyze_report = AnalyzeReport.Field()
+    # HITL Trusted Vendors
+    add_trusted_vendor = AddTrustedVendor.Field()
+    remove_trusted_vendor = RemoveTrustedVendor.Field()
     # Authentication / user management
     create_user = CreateUser.Field()
     login_user = LoginUser.Field()
-    google_auth = GoogleAuth.Field()
 
 
 # ============================================

@@ -19,10 +19,7 @@ app.secret_key = os.getenv("FLASK_SECRET_KEY", "audithawk-flask-secret-change-me
 
 # Django backend GraphQL endpoint
 GRAPHQL_URL = os.getenv("GRAPHQL_URL", "http://localhost:8000/graphql/")
-GOOGLE_CLIENT_ID = os.getenv(
-    "GOOGLE_CLIENT_ID",
-    "79604445384-4jrnbijh3cfqi5u1c057d4bheuchqhor.apps.googleusercontent.com",
-)
+
 
 
 # ── helpers ──────────────────────────────────────────────
@@ -66,7 +63,7 @@ def landing():
 
 @app.route("/auth")
 def auth_page():
-    return render_template("auth.html", google_client_id=GOOGLE_CLIENT_ID)
+    return render_template("auth.html")
 
 
 @app.route("/api/auth/login", methods=["POST"])
@@ -117,29 +114,6 @@ def api_signup():
         return jsonify({"success": False, "message": str(e)}), 500
 
 
-@app.route("/api/auth/google", methods=["POST"])
-def api_google_auth():
-    """Proxy Google OAuth to Django GraphQL."""
-    body = request.get_json(force=True)
-    id_token = body.get("idToken", "")
-    try:
-        data = gql(
-            """mutation($idToken:String!){
-                googleAuth(idToken:$idToken){
-                    success message token user{ id email provider }
-                }
-            }""",
-            {"idToken": id_token},
-        )
-        result = data["googleAuth"]
-        if result["success"]:
-            session["token"] = result["token"]
-            session["user"] = result["user"]
-        return jsonify(result)
-    except Exception as e:
-        return jsonify({"success": False, "message": str(e)}), 500
-
-
 @app.route("/api/auth/logout", methods=["POST"])
 def api_logout():
     session.clear()
@@ -150,11 +124,7 @@ def api_logout():
 @login_required
 def main_app():
     user = session.get("user", {})
-    return render_template(
-        "main.html",
-        user=user,
-        google_client_id=GOOGLE_CLIENT_ID,
-    )
+    return render_template("main.html", user=user)
 
 
 # ── run ──────────────────────────────────────────────────
