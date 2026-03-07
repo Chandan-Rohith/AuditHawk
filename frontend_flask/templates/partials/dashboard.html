@@ -128,7 +128,12 @@ function escapeAttr(value) {
 
 function renderDashboard() {
   const total = transactions.length;
+  // Calculate active frauds (excluding those the human rejected)
   const fraudCount = frauds.filter(f => f.status !== "rejected").length;
+  
+  // 🚨 THE FIX: Dynamically recalculate the risk score percentage 🚨
+  const currentRiskScore = total > 0 ? Math.round((fraudCount / total) * 100) : 0;
+
   const dashEmpty = document.getElementById("dash-empty");
   const dashFilled = document.getElementById("dash-filled");
 
@@ -141,12 +146,13 @@ function renderDashboard() {
   dashEmpty.classList.add("hidden");
   dashFilled.classList.remove("hidden");
 
+  // Update the DOM with the real-time metrics
   document.getElementById("metric-total").textContent = total;
   document.getElementById("metric-fraud").textContent = fraudCount;
-  document.getElementById("metric-risk").textContent = riskScore + "%";
+  document.getElementById("metric-risk").textContent = currentRiskScore + "%"; // <--- Now uses dynamic score
 
   // avg flag value
-  const avgFlag = fraudCount ? Math.round(frauds.reduce((s, f) => s + f.amount, 0) / fraudCount) : 0;
+  const avgFlag = fraudCount ? Math.round(frauds.filter(f => f.status !== "rejected").reduce((s, f) => s + f.amount, 0) / fraudCount) : 0;
   document.getElementById("avg-flag-value").textContent = "$" + avgFlag;
 
   // doughnut
@@ -171,6 +177,8 @@ function renderChart(legit, flagged) {
 function renderFraudTable() {
   const thead = document.getElementById("fraud-thead");
   const tbody = document.getElementById("fraud-tbody");
+  
+  // Calculate how many items actually need review
   const pendingCount = frauds.filter(f => f.status !== "rejected" && f.status !== "approved").length;
   document.getElementById("fraud-count-label").textContent = pendingCount + " Items Pending";
 
@@ -216,35 +224,62 @@ function renderFraudTable() {
       <th class="px-6 py-3">Transaction</th>
       ${visibleColumns.map(col => `<th class="px-6 py-3">${col.label}</th>`).join("")}
       <th class="px-6 py-3">Amount</th>
-      <th class="px-6 py-3">Reason</th>
+      <th class="px-6 py-3 w-1/4">Reason</th>
       <th class="px-6 py-3 text-right">Actions</th>
     </tr>
   `;
 
   tbody.innerHTML = rows.map(tx => {
-    const rowClass = tx.status === "rejected" ? "opacity-60" : "hover:bg-[#2D2D2D]";
-    const textClass = tx.status === "rejected" ? "line-through" : "";
+    // Determine the exact state of the row
+    const isPending = tx.status === "review_required" || tx.status === "monitor" || !tx.status;
+    const isRejected = tx.status === "rejected";
+    const isApproved = tx.status === "approved";
+
+    // Set row visual styles based on state
+    const rowClass = isRejected ? "opacity-60" : isApproved ? "bg-red-900/10 border-l-4 border-red-500" : "hover:bg-[#2D2D2D]";
+    const textClass = isRejected ? "line-through text-[#555555]" : "";
+
     const transactionLabel = escapeHtml(tx.transaction_id || ("TX-" + tx.id));
     const explanation = tx.explanation || (tx.risk_score ? `Risk score ${tx.risk_score}` : "Flagged by ML");
     const amountText = Number(tx.amount ?? 0).toString();
     const actionId = escapeAttr(tx.action_id);
 
+    // Swap buttons for Badges if the decision has already been made, BUT allow an Undo
+    let actionHTML = "";
+    if (isPending) {
+        actionHTML = `
+            <button data-tx-id="${actionId}" data-action="approved"
+                    class="px-3 py-1 bg-[#FF6B35] text-white rounded text-xs font-bold hover:bg-[#e55a2b] transition">Accept</button>
+            <button data-tx-id="${actionId}" data-action="rejected"
+                    class="px-3 py-1 border border-[#555555] text-[#777777] rounded text-xs font-bold hover:bg-[#3D3D3D] transition">Reject</button>
+        `;
+    } else if (isApproved) {
+        actionHTML = `
+            <span class="text-xs font-bold text-red-500 uppercase tracking-wider mr-3">Confirmed Fraud</span>
+            <button data-tx-id="${actionId}" data-action="review_required"
+                    class="text-[10px] uppercase font-bold text-[#777777] hover:text-white underline transition">Undo</button>
+        `;
+    } else if (isRejected) {
+        actionHTML = `
+            <span class="text-xs font-bold text-[#555555] uppercase tracking-wider mr-3">Dismissed</span>
+            <button data-tx-id="${actionId}" data-action="review_required"
+                    class="text-[10px] uppercase font-bold text-[#777777] hover:text-white underline transition">Undo</button>
+        `;
+    }
+
     return `
-    <tr class="border-t ${rowClass}">
+    <tr class="border-t border-[#3D3D3D] ${rowClass} transition-colors">
       <td class="px-6 py-4 font-mono ${textClass}">${transactionLabel}</td>
       ${visibleColumns.map(col => {
         const value = isMeaningful(tx[col.key]) ? tx[col.key] : "—";
         return `<td class="px-6 py-4 ${textClass}">${escapeHtml(value)}</td>`;
       }).join("")}
-      <td class="px-6 py-4 font-bold ${textClass}">$${escapeHtml(amountText)}</td>
+      <td class="px-6 py-4 font-bold ${isRejected ? 'text-[#555555]' : 'text-white'} ${textClass}">$${escapeHtml(amountText)}</td>
       <td class="px-6 py-4 text-xs text-[#FF6B35] ${textClass}" title="${escapeAttr(explanation)}">
         ${escapeHtml(explanation)}
       </td>
-      <td class="px-6 py-4 text-right space-x-2">
-        <button data-tx-id="${actionId}" data-action="approved"
-                class="px-3 py-1 bg-[#FF6B35] text-white rounded text-xs font-bold">Accept</button>
-        <button data-tx-id="${actionId}" data-action="rejected"
-                class="px-3 py-1 border text-[#777777] rounded text-xs font-bold">Reject</button>
+      <td class="px-6 py-4 text-right space-x-2 whitespace-nowrap">
+        ${actionHTML}
       </td>
     </tr>`;
   }).join("");

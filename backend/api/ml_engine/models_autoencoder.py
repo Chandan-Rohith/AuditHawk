@@ -50,9 +50,7 @@ class TransactionAutoencoder(nn.Module):
             nn.Linear(2, 8),
             nn.ReLU(),
             nn.Linear(8, 4),
-            # No activation on output – features are [0, 1] so sigmoid
-            # could also work, but keeping it unconstrained avoids
-            # gradient saturation.
+            nn.Sigmoid()  # <-- Forces output to be exactly between 0 and 1
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -119,8 +117,7 @@ def run_autoencoder(
         # per-row MSE: mean over the 4 feature dimensions
         mse = criterion(reconstructed, tensor_x).mean(dim=1).numpy()
 
-    # Normalise to [0, 1]
-    mse_max = mse.max() or 1.0
-    scores = mse / mse_max
-
+    # REMOVE the mse / mse_max logic. Just return the raw error multiplied by a constant.
+    # We multiply by 10 just to bring tiny decimals (0.005) up to a readable baseline (0.05)
+    scores = mse * 10.0 
     return pd.Series(scores, index=df.index, name="ae_score")

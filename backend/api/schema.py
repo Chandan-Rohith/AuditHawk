@@ -5,12 +5,12 @@ from django.conf import settings
 from django.contrib.auth import get_user_model, authenticate
 from django.utils import timezone
 from datetime import datetime, timedelta
-from pymongo import ReturnDocument
+from pymongo import ReturnDocument, UpdateOne
 from .csv_parser import parse_transaction_csv, CSVParserError
 
 from .db import (
-    audit_reports_col, transactions_col, flagged_transactions_col,
-    users_col, trusted_vendors_col,
+    audit_reports_col, transactions_col, transaction_batch_col, flagged_transactions_col,
+    users_col,
     get_trusted_vendors, add_trusted_vendor, remove_trusted_vendor,
 )
 
@@ -76,6 +76,10 @@ class TransactionType(graphene.ObjectType):
     merchant = graphene.String()
     category = graphene.String()
     account_id = graphene.String()
+    flagged = graphene.Boolean()
+    explanation = graphene.String()
+    risk_score = graphene.Float()
+    decision = graphene.String()
 
 
 class AuditReportType(graphene.ObjectType):
@@ -166,7 +170,11 @@ class Query(graphene.ObjectType):
                 amount=txn["amount"],
                 merchant=txn["merchant"],
                 category=txn["category"],
-                account_id=txn["account_id"]
+                account_id=txn["account_id"],
+                flagged=txn.get("flagged", False),
+                explanation=txn.get("explanation", ""),
+                risk_score=txn.get("risk_score", 0.0),
+                decision=txn.get("decision", "monitor"),
             )
             for txn in transactions
         ]
@@ -221,7 +229,7 @@ class Query(graphene.ObjectType):
         if not user_id:
             return []
 
-        return get_trusted_vendors()
+        return get_trusted_vendors(user_id)
 
 
 
@@ -273,92 +281,119 @@ class UploadAuditFile(graphene.Mutation):
         try:
             # Parse and validate CSV content using csv_parser
             transactions, summary = parse_transaction_csv(csv_content)
-            
-            # Create new audit report in MongoDB
-            new_report = {
-                "file_name": file_name,
-                "uploaded_at": datetime.utcnow().isoformat(),
-                "total_transactions": summary['total_transactions'],
-                "flagged_count": 0,  # Will be updated after ML analysis
-                "status": "processing",
-                "user_id": user_id,
-                "threshold_limit": effective_threshold,
-            }
-            
-            # Insert report into MongoDB
-            result = audit_reports_col.insert_one(new_report)
-            report_id = str(result.inserted_id)
-            
-            # Store transactions in MongoDB with report_id reference
-            for txn in transactions:
-                txn['report_id'] = report_id
-                txn['user_id'] = user_id
-            transactions_col.insert_many(transactions)
+            mongo_client = audit_reports_col.database.client
+            response_payload = {}
 
-            # ── Run ML ensemble pipeline automatically ──────────
-            try:
-                trusted = get_trusted_vendors()
+            def _upload_transaction(session):
+                trusted = get_trusted_vendors(user_id)
+                uploaded_at = datetime.utcnow().isoformat()
+
+                new_report = {
+                    "file_name": file_name,
+                    "uploaded_at": uploaded_at,
+                    "total_transactions": summary['total_transactions'],
+                    "flagged_count": 0,
+                    "status": "processing",
+                    "user_id": user_id,
+                    "threshold_limit": effective_threshold,
+                }
+
+                result = audit_reports_col.insert_one(new_report, session=session)
+                report_id = str(result.inserted_id)
+
+                prepared_transactions = []
+                for txn in transactions:
+                    prepared_transactions.append(
+                        {
+                            **txn,
+                            "report_id": report_id,
+                            "user_id": user_id,
+                            "flagged": False,
+                            "explanation": "",
+                            "risk_score": 0.0,
+                            "decision": "monitor",
+                        }
+                    )
+
+                if prepared_transactions:
+                    transactions_col.insert_many(prepared_transactions, session=session)
+
+                transaction_batch_col.insert_one(
+                    {
+                        "report_id": report_id,
+                        "user_id": user_id,
+                        "file_name": file_name,
+                        "uploaded_at": uploaded_at,
+                        "total_transactions": len(prepared_transactions),
+                        "transactions": prepared_transactions,
+                    },
+                    session=session,
+                )
+
                 flagged_docs = run_pipeline(
-                    transactions,
+                    prepared_transactions,
                     report_id,
                     trusted,
                     amount_threshold=effective_threshold,
                 )
+
                 if flagged_docs:
                     for flagged in flagged_docs:
                         flagged["user_id"] = user_id
-                    flagged_transactions_col.insert_many(flagged_docs)
+                    flagged_transactions_col.insert_many(flagged_docs, session=session)
+
+                    txn_updates = [
+                        UpdateOne(
+                            {
+                                "report_id": report_id,
+                                "transaction_id": flagged.get("transaction_id", ""),
+                                "user_id": user_id,
+                            },
+                            {
+                                "$set": {
+                                    "flagged": True,
+                                    "explanation": flagged.get("explanation", ""),
+                                    "risk_score": float(flagged.get("risk_score", 0) or 0),
+                                    "decision": flagged.get("decision", "review_required"),
+                                }
+                            },
+                        )
+                        for flagged in flagged_docs
+                    ]
+                    if txn_updates:
+                        transactions_col.bulk_write(txn_updates, ordered=False, session=session)
+
                 flagged_count = len(flagged_docs)
                 audit_reports_col.update_one(
                     {"_id": result.inserted_id},
                     {"$set": {"flagged_count": flagged_count, "status": "completed"}},
+                    session=session,
                 )
-                new_report["flagged_count"] = flagged_count
-                new_report["status"] = "completed"
-            except Exception as ml_err:
-                # ML failure should not break the upload
-                fallback_flagged = []
-                if effective_threshold is not None:
-                    fallback_flagged = [
-                        {
-                            "report_id": report_id,
-                            "transaction_id": txn.get("transaction_id", ""),
-                            "amount": float(txn.get("amount", 0) or 0),
-                            "risk_score": 1.0,
-                            "decision": "review_required",
-                            "explanation": f"Amount exceeds user threshold ({effective_threshold:.2f}).",
-                            "user_id": user_id,
-                        }
-                        for txn in transactions
-                        if float(txn.get("amount", 0) or 0) > effective_threshold
-                    ]
 
-                if fallback_flagged:
-                    flagged_transactions_col.insert_many(fallback_flagged)
-
-                audit_reports_col.update_one(
-                    {"_id": result.inserted_id},
+                response_payload.update(
                     {
-                        "$set": {
-                            "status": "completed",
-                            "ml_error": str(ml_err),
-                            "flagged_count": len(fallback_flagged),
-                        }
-                    },
+                        "id": report_id,
+                        "file_name": file_name,
+                        "uploaded_at": uploaded_at,
+                        "total_transactions": summary['total_transactions'],
+                        "flagged_count": flagged_count,
+                        "status": "completed",
+                    }
                 )
-                new_report["flagged_count"] = len(fallback_flagged)
-                new_report["status"] = "completed"
+
+            with mongo_client.start_session() as session:
+                session.with_transaction(_upload_transaction)
 
             return UploadAuditFileResponse(
                 success=True,
-                message=f"Successfully uploaded and analyzed {summary['total_transactions']} transactions ({new_report['flagged_count']} flagged)",
+                message=f"Successfully uploaded and analyzed {summary['total_transactions']} transactions ({response_payload['flagged_count']} flagged)",
                 report=AuditReportType(
-                    id=report_id,
-                    file_name=new_report["file_name"],
-                    uploaded_at=new_report["uploaded_at"],
-                    total_transactions=new_report["total_transactions"],
-                    flagged_count=new_report["flagged_count"],
-                    status=new_report["status"]
+                    id=response_payload["id"],
+                    file_name=response_payload["file_name"],
+                    uploaded_at=response_payload["uploaded_at"],
+                    total_transactions=response_payload["total_transactions"],
+                    flagged_count=response_payload["flagged_count"],
+                    status=response_payload["status"]
                 )
             )
             
@@ -550,34 +585,86 @@ class AnalyzeReport(graphene.Mutation):
         if not report:
             return AnalyzeReportResponse(success=False, message="Report not found", flagged_count=0)
 
-        txns = list(transactions_col.find({"report_id": report_id, "user_id": user_id}))
-        if not txns:
-            return AnalyzeReportResponse(success=False, message="No transactions for this report", flagged_count=0)
+        mongo_client = audit_reports_col.database.client
+        flagged_count = 0
 
-        # Clear previous flags
-        flagged_transactions_col.delete_many({"report_id": report_id, "user_id": user_id})
         try:
-            trusted = get_trusted_vendors()
-            flagged_docs = run_pipeline(
-                txns,
-                report_id,
-                trusted,
-                amount_threshold=report.get("threshold_limit"),
-            )
-            if flagged_docs:
-                for flagged in flagged_docs:
-                    flagged["user_id"] = user_id
-                flagged_transactions_col.insert_many(flagged_docs)
+            def _reanalyze_transaction(session):
+                nonlocal flagged_count
+                txns = list(
+                    transactions_col.find(
+                        {"report_id": report_id, "user_id": user_id},
+                        session=session,
+                    )
+                )
+                if not txns:
+                    raise ValueError("No transactions for this report")
 
-            audit_reports_col.update_one(
-                {"_id": ObjectId(report_id)},
-                {"$set": {"flagged_count": len(flagged_docs), "status": "completed"}},
-            )
+                trusted = get_trusted_vendors(user_id)
+                flagged_transactions_col.delete_many(
+                    {"report_id": report_id, "user_id": user_id},
+                    session=session,
+                )
+                transactions_col.update_many(
+                    {"report_id": report_id, "user_id": user_id},
+                    {
+                        "$set": {
+                            "flagged": False,
+                            "explanation": "",
+                            "risk_score": 0.0,
+                            "decision": "monitor",
+                        }
+                    },
+                    session=session,
+                )
+
+                flagged_docs = run_pipeline(
+                    txns,
+                    report_id,
+                    trusted,
+                    amount_threshold=report.get("threshold_limit"),
+                )
+                flagged_count = len(flagged_docs)
+
+                if flagged_docs:
+                    for flagged in flagged_docs:
+                        flagged["user_id"] = user_id
+                    flagged_transactions_col.insert_many(flagged_docs, session=session)
+
+                    txn_updates = [
+                        UpdateOne(
+                            {
+                                "report_id": report_id,
+                                "transaction_id": flagged.get("transaction_id", ""),
+                                "user_id": user_id,
+                            },
+                            {
+                                "$set": {
+                                    "flagged": True,
+                                    "explanation": flagged.get("explanation", ""),
+                                    "risk_score": float(flagged.get("risk_score", 0) or 0),
+                                    "decision": flagged.get("decision", "review_required"),
+                                }
+                            },
+                        )
+                        for flagged in flagged_docs
+                    ]
+                    if txn_updates:
+                        transactions_col.bulk_write(txn_updates, ordered=False, session=session)
+
+                audit_reports_col.update_one(
+                    {"_id": ObjectId(report_id), "user_id": user_id},
+                    {"$set": {"flagged_count": flagged_count, "status": "completed"}},
+                    session=session,
+                )
+
+            with mongo_client.start_session() as session:
+                session.with_transaction(_reanalyze_transaction)
 
             return AnalyzeReportResponse(
                 success=True,
-                message=f"Re-analysis complete: {len(flagged_docs)} anomalies detected",
-                flagged_count=len(flagged_docs),
+                message=f"Re-analysis complete: {flagged_count} anomalies detected",
+                flagged_count=flagged_count,
             )
         except Exception as ml_err:
             return AnalyzeReportResponse(
@@ -604,8 +691,12 @@ class AddTrustedVendor(graphene.Mutation):
     Output = TrustedVendorResponse
 
     def mutate(root, info, name):
-        ok = add_trusted_vendor(name)
-        vendors = get_trusted_vendors()
+        user_id = get_current_user_id(info)
+        if not user_id:
+            return TrustedVendorResponse(success=False, message="Authentication required", vendors=[])
+
+        ok = add_trusted_vendor(user_id, name)
+        vendors = get_trusted_vendors(user_id)
         return TrustedVendorResponse(
             success=ok,
             message=f"'{name}' added to trusted vendors" if ok else "Invalid vendor name",
@@ -620,8 +711,12 @@ class RemoveTrustedVendor(graphene.Mutation):
     Output = TrustedVendorResponse
 
     def mutate(root, info, name):
-        ok = remove_trusted_vendor(name)
-        vendors = get_trusted_vendors()
+        user_id = get_current_user_id(info)
+        if not user_id:
+            return TrustedVendorResponse(success=False, message="Authentication required", vendors=[])
+
+        ok = remove_trusted_vendor(user_id, name)
+        vendors = get_trusted_vendors(user_id)
         return TrustedVendorResponse(
             success=ok,
             message=f"'{name}' removed from trusted vendors" if ok else "Vendor not found",

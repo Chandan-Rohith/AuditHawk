@@ -63,7 +63,7 @@ class TransactionCSVParser:
     }
 
     KEYWORD_TARGETS = {
-        'amount': ['amount', 'amt', 'value', 'withdrawal', 'debit', 'transaction', 'cost'],
+        'amount': ['amount', 'amt', 'value', 'withdrawal', 'debit', 'cost'],
         'date': ['date', 'txn_date', 'timestamp', 'dt', 'day', 'time'],
         'merchant': ['desc', 'description', 'narrative', 'details', 'particulars', 'vendor', 'memo', 'merchant', 'payee'],
         'account_id': ['account', 'acct', 'iban', 'acc_no', 'beneficiary', 'account_number'],
@@ -242,7 +242,8 @@ class TransactionCSVParser:
         # Pass 1: direct keyword-target mapping (matches user's ingestor behavior)
         target_map = cls._map_by_targets(headers)
         for required, source in target_map.items():
-            mapped[required] = (source, 1.0)
+            # Seed with threshold confidence so stronger alias/fuzzy matches can still replace it.
+            mapped[required] = (source, cls.FUZZY_MATCH_THRESHOLD)
 
         for header in headers:
             required_field, score = cls._best_required_match(header)

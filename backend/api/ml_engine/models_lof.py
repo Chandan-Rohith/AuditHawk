@@ -1,11 +1,11 @@
 """
-Local Outlier Factor + HITL Active Learning (Masking)
-─────────────────────────────────────────────────────
+Local Outlier Factor model.
+──────────────────────────
 Uses sklearn.neighbors.LocalOutlierFactor to find local density anomalies.
 
-After scoring, any transaction whose merchant appears in the MongoDB
-trusted-vendors list has its anomaly score **masked to 0**.  The whitelist
-is never used to train a classifier – only to post-filter.
+Trusted-vendor handling is applied upstream in the ensemble by dampening
+specific feature pillars (magnitude/rarity). This model only scores the
+features it receives.
 
 Returns
 -------
@@ -25,7 +25,6 @@ FEATURE_COLS = ["velocity", "pattern", "rarity", "magnitude"]
 
 def run_lof(
     df: pd.DataFrame,
-    trusted_vendors: list[str] | None = None,
     n_neighbors: int = 20,
     contamination: float = 0.05,
 ) -> pd.Series:
@@ -36,8 +35,6 @@ def run_lof(
     ----------
     df : DataFrame
         Must contain the four feature columns.
-    trusted_vendors : list[str], optional
-        Vendor names whose scores will be masked to 0 (HITL whitelist).
     n_neighbors : int
         LOF neighbour count – auto-capped to len(df)-1 when the dataset
         is small.
@@ -66,16 +63,6 @@ def run_lof(
     raw_scores = -lof.negative_outlier_factor_          # positive, ≥ 1 for normal
     shifted = np.maximum(raw_scores - 1.0, 0.0)        # 0 for normal points
 
-    # Normalise to [0, 1]
-    score_max = shifted.max() or 1.0
-    scores = shifted / score_max
-
-    scores = pd.Series(scores, index=df.index, name="lof_score")
-
-    # ── HITL Active Learning: Mask trusted vendors ──────
-    if trusted_vendors:
-        trusted_set = {v.strip().lower() for v in trusted_vendors}
-        mask = df["merchant"].str.strip().str.lower().isin(trusted_set)
-        scores.loc[mask] = 0.0
-
-    return scores
+   # REMOVE the shifted / score_max logic. Return the raw shifted score.
+    # 0 means normal. Anything > 1.5 is mathematically dense anomaly.
+    return pd.Series(shifted, index=df.index, name="lof_score")

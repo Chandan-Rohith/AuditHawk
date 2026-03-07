@@ -1,0 +1,24 @@
+=== ML PIPELINE DIAGNOSTICS (2026-03-05 21:49:11.107067) ===
+Total Rows Processed: 16
+Risk Median: 0.8117 | MAD: 0.1703
+Z-Score Threshold Setting: 3.0
+Max Possible Z-Score with this data: 0.75
+
+--- TOP 10 HIGHEST RISK TRANSACTIONS ---
+transaction_id  amount       merchant  lof_score  ae_score  total_risk_index  robust_z_score
+          T004   300.0            AWS   0.153977  0.823722          1.000000        0.745767
+          T003    12.0      Starbucks   0.000000  1.000000          1.000000        0.745767
+          T011   999.0 Consulting_LLC   1.000000  0.281606          1.000000        0.745767
+          T008   999.0 Consulting_LLC   0.902424  0.485312          0.902424        0.359352
+          T005   150.0        Staples   0.000000  0.777930          0.882353        0.279869
+          T001   150.0        Staples   0.217901  0.711196          0.882353        0.279869
+          T006    45.5           Uber   0.000000  0.864385          0.864385        0.208713
+          T010   999.0 Consulting_LLC   0.822970  0.352552          0.822970        0.044706
+          T002    45.5           Uber   0.000000  0.788262          0.800392       -0.044706
+          T009   999.0 Consulting_LLC   0.683416  0.441183          0.683416       -0.507947
+
+--- 3 BASELINE (NORMAL) TRANSACTIONS ---
+transaction_id  amount       merchant  lof_score  ae_score  total_risk_index  robust_z_score
+          T010   999.0 Consulting_LLC   0.822970  0.352552          0.822970        0.044706
+          T002    45.5           Uber   0.000000  0.788262          0.800392       -0.044706
+          T009   999.0 Consulting_LLC   0.683416  0.441183          0.683416       -0.507947

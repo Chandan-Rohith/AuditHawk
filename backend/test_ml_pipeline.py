@@ -32,9 +32,9 @@ print("Columns:", list(df.columns))
 print(df[["merchant", "velocity", "pattern", "rarity", "magnitude"]].to_string(index=False))
 
 print("\n" + "=" * 60)
-print("TEST 2: LOF Scoring (Amazon masked as trusted)")
+print("TEST 2: LOF Scoring")
 print("=" * 60)
-scores = run_lof(df, trusted_vendors=["Amazon"])
+scores = run_lof(df)
 for i, s in enumerate(scores):
     merchant = records[i]["merchant"]
     print(f"  {merchant:25s}  lof_score = {s:.4f}")
