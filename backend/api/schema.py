@@ -116,6 +116,7 @@ class DashboardSummaryType(graphene.ObjectType):
     total_flagged = graphene.Int()
     processing_count = graphene.Int()
     completed_count = graphene.Int()
+
 # ============================================
 # Query Resolvers
 # ============================================
@@ -154,7 +155,6 @@ class Query(graphene.ObjectType):
             )
             for r in reports
         ]
-
 
     def resolve_transactions(root, info, report_id):
         user_id = get_current_user_id(info)
@@ -232,7 +232,6 @@ class Query(graphene.ObjectType):
         return get_trusted_vendors(user_id)
 
 
-
 # ============================================
 # Mutation Types
 # ============================================
@@ -258,13 +257,6 @@ class UploadAuditFile(graphene.Mutation):
     def mutate(root, info, file_name, csv_content, threshold_limit=None):
         """
         Parse CSV content, validate it, and create an audit report.
-        
-        Args:
-            file_name: Name of the CSV file (e.g., "transactions.csv")
-            csv_content: Complete CSV file content as a string
-            
-        Returns:
-            UploadAuditFileResponse with success status, message, and report
         """
         user_id = get_current_user_id(info)
         if not user_id:
@@ -398,14 +390,12 @@ class UploadAuditFile(graphene.Mutation):
             )
             
         except CSVParserError as e:
-            # Handle CSV parsing/validation errors
             return UploadAuditFileResponse(
                 success=False,
                 message=f"CSV parsing error: {str(e)}",
                 report=None
             )
         except Exception as e:
-            # Handle unexpected errors
             return UploadAuditFileResponse(
                 success=False,
                 message=f"Unexpected error: {str(e)}",
@@ -478,7 +468,6 @@ class UpdateTransactionDecision(graphene.Mutation):
 # ============================================
 # User / Auth Types & Mutations
 # ============================================
-
 
 class UserType(graphene.ObjectType):
     id = graphene.ID()

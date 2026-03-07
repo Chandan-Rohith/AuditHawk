@@ -67,8 +67,8 @@ def run_pipeline(
     Returns
     -------
     list[dict]
-        Flagged anomalies ready for insertion into
-        ``flagged_transactions_col``.  Each dict contains:
+        Flagged anomalies ready for upsert into the `transactions` collection
+        with `flagged` metadata set to True. Each dict contains:
             report_id, transaction_id, amount, risk_score,
             decision, explanation
     """
