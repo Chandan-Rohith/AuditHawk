@@ -128,10 +128,9 @@ function escapeAttr(value) {
 
 function renderDashboard() {
   const total = transactions.length;
-  // Calculate active frauds (excluding those the human rejected)
+  
   const fraudCount = frauds.filter(f => f.status !== "rejected").length;
   
-  // 🚨 THE FIX: Dynamically recalculate the risk score percentage 🚨
   const currentRiskScore = total > 0 ? Math.round((fraudCount / total) * 100) : 0;
 
   const dashEmpty = document.getElementById("dash-empty");
