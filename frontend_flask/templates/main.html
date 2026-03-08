@@ -35,9 +35,56 @@ let activeView = "dashboard";
 let doughnutChart = null;
 let activeReportId = null;
 
+function getInitialViewFromUrl() {
+  const requested = new URLSearchParams(window.location.search).get("view") || "dashboard";
+  const allowed = new Set(["dashboard", "vendors", "history", "session"]);
+  return allowed.has(requested) ? requested : "dashboard";
+}
+
+function openDashboardView(view) {
+  const targetView = view || "dashboard";
+  const target = new URL("/dashboard", window.location.origin);
+  if (targetView !== "dashboard") {
+    target.searchParams.set("view", targetView);
+  }
+
+  const targetPathAndSearch = target.pathname + target.search;
+  if ((window.location.pathname + window.location.search) !== targetPathAndSearch) {
+    window.location.href = targetPathAndSearch;
+    return;
+  }
+
+  switchView(targetView, targetView === "dashboard");
+}
+
+function updateNavActiveState(view) {
+  const navVendors = document.getElementById("nav-vendors");
+  const navHistory = document.getElementById("nav-history");
+  if (!navVendors || !navHistory) {
+    return;
+  }
+
+  [navVendors, navHistory].forEach((btn) => {
+    btn.classList.remove("text-[#FF6B35]");
+    btn.classList.add("text-[#C9C9C9]");
+  });
+
+  if (view === "vendors") {
+    navVendors.classList.remove("text-[#C9C9C9]");
+    navVendors.classList.add("text-[#FF6B35]");
+    return;
+  }
+
+  if (view === "history" || view === "session") {
+    navHistory.classList.remove("text-[#C9C9C9]");
+    navHistory.classList.add("text-[#FF6B35]");
+  }
+}
+
 // ── view switching ──
 function switchView(view, reset) {
   activeView = view;
+  updateNavActiveState(view);
   ["dashboard","vendors","history","session"].forEach(v => {
     document.getElementById("view-" + v).classList.toggle("hidden", v !== view);
   });
@@ -91,7 +138,8 @@ async function bootstrapData() {
       };
     });
 
-    switchView("dashboard", true);
+    const initialView = getInitialViewFromUrl();
+    switchView(initialView, initialView === "dashboard");
 
     renderHistory();
     renderVendors();

@@ -1,6 +1,6 @@
 <!-- ═══════════════════ SESSION VIEW ═══════════════════ -->
 <div id="view-session" class="hidden">
-  <div class="flex justify-between items-center mb-6">
+  <div class="flex items-center justify-between mb-6">
     <div class="flex items-center gap-2 text-sm">
       <button onclick="switchView('history')" class="text-[#FF6B35] hover:underline">History</button>
       <span class="text-[#555555]">›</span>
@@ -18,11 +18,12 @@
 /* ═══════════════════ SESSION JS ═══════════════════ */
 
 async function openSession(id, silent = false) {
-  const session = history.find(s => s.id === id);
-  if (!session) return;
+  const sessionId = String(id);
+  const sessionEntry = history.find(s => String(s.id) === sessionId);
+  if (!sessionEntry) return;
 
   try {
-    const res = await fetch(`/api/reports/${encodeURIComponent(id)}`);
+    const res = await fetch(`/api/reports/${encodeURIComponent(sessionId)}`);
     const data = await res.json();
     if (!res.ok || !data.success) {
       alert(data.message || "Failed to load report details.");
@@ -46,10 +47,10 @@ async function openSession(id, silent = false) {
       risk_score: tx.riskScore,
       decision: tx.decision,
       explanation: tx.explanation,
-      status: tx.decision,
+      status: tx.decision, // Map decision to status so UI logic works perfectly
     }));
 
-    activeReportId = id;
+    activeReportId = sessionId;
     riskScore = transactions.length ? Math.round((frauds.length / transactions.length) * 100) : 0;
   } catch (err) {
     console.error("Open session error:", err);
@@ -57,7 +58,11 @@ async function openSession(id, silent = false) {
     return;
   }
 
-  document.getElementById("session-filename").textContent = session.fileName;
+  document.getElementById("session-filename").textContent = sessionEntry.fileName;
+
+  // If silent === false, the user clicked from the History view (Lock it down!)
+  // If silent === true, the upload modal triggered it for a fresh CSV (Keep it interactive!)
+  window.isHistoryMode = !silent;
 
   // clone filled dashboard into session view
   const target = document.getElementById("session-dashboard");

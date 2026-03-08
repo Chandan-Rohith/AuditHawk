@@ -174,6 +174,7 @@ def api_logout():
 
 
 @app.route("/app")
+@app.route("/dashboard")
 @login_required
 def main_app():
     user = session.get("user", {})
