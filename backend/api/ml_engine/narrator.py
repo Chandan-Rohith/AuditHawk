@@ -1,96 +1,72 @@
 """
 Narrator – Human-Readable Explanations  (Phase 3 ✓)
 ───────────────────────────────────────────────────────────
-Will call an LLM (e.g. Gemini) to produce plain-English explanations
-of *why* each flagged transaction was considered anomalous.
-
-For Phase 1 we generate rule-based explanations from the feature
-scores so the pipeline is already end-to-end functional.
+Translates raw machine learning anomaly scores into actionable, 
+auditor-friendly threat intelligence. Ranks signals by severity.
 """
 
 from __future__ import annotations
-
 import pandas as pd
 
-
-def generate_explanations(anomalies: pd.DataFrame) -> list[str]:
+def generate_explanations(anomalies: pd.DataFrame, max_reasons: int = 2) -> list[str]:
     """
-    Given a DataFrame of anomalous rows (with score columns), return a
-    list of human-readable explanation strings, one per row.
-
-    Phase 1 uses heuristic templates.  Phase 2+ will integrate Gemini.
+    Given a DataFrame of anomalous rows, rank the triggered rules by score 
+    and return only the top `max_reasons` to prevent UI alert fatigue.
     """
     explanations: list[str] = []
 
     for _, row in anomalies.iterrows():
-        parts: list[str] = []
+        # Store tuples of (score, explanation_text)
+        signals: list[tuple[float, str]] = []
 
         # Velocity
         vel = row.get("velocity", 0.0)
         if vel > 0.7:
-            parts.append(
-                f"High transaction velocity (score {vel:.2f}): "
-                "rapid repeated payments to this vendor within 7 days, "
-                "consistent with smurfing/structuring."
-            )
+            signals.append((vel, f"Velocity Risk ({vel:.2f}): Rapid, repeated payments to this vendor."))
 
         # Pattern
         pat = row.get("pattern", 0.0)
         if pat > 0.7:
-            parts.append(
-                f"Unusual temporal pattern (score {pat:.2f}): "
-                "activity outside normal business hours or on weekends."
-            )
+            signals.append((pat, f"Time Anomaly ({pat:.2f}): Transaction occurred outside normal business hours."))
 
         # Rarity
         rar = row.get("rarity", 0.0)
         if rar > 0.7:
-            parts.append(
-                f"Rare vendor/amount combination (score {rar:.2f}): "
-                "this merchant is seldom seen and the amount is disproportionately large."
-            )
+            signals.append((rar, f"Unusual Vendor ({rar:.2f}): Payment made to an unrecognized or rare merchant."))
 
         # Magnitude
         mag = row.get("magnitude", 0.0)
         if mag > 0.7:
-            parts.append(
-                f"Abnormal magnitude (score {mag:.2f}): "
-                "the transaction amount is an extreme outlier relative to the dataset."
-            )
+            signals.append((mag, f"Massive Outlier ({mag:.2f}): Abnormally large amount compared to corporate baselines."))
 
         # LOF
         lof = row.get("lof_score", 0.0)
         if lof > 0.5:
-            parts.append(
-                f"Local density anomaly (LOF score {lof:.2f}): "
-                "this transaction's feature profile is unlike its nearest neighbours."
-            )
+            signals.append((lof, f"Data Deviation (LOF {lof:.2f}): Metadata strongly breaks historical purchasing patterns."))
 
         # Autoencoder (Phase 2)
         ae = row.get("ae_score", 0.0)
         if ae > 0.5:
-            parts.append(
-                f"Autoencoder reconstruction anomaly (AE score {ae:.2f}): "
-                "this transaction's behavioural profile deviates significantly "
-                "from the learned normal patterns."
-            )
+            signals.append((ae, f"Behavioral Anomaly (AI {ae:.2f}): Deep learning detected a break in established normal behavior."))
 
         # Graph (Phase 3)
         graph = row.get("graph_score", 0.0)
         if graph > 0.5:
-            parts.append(
-                f"Graph topology anomaly (graph score {graph:.2f}): "
-                "this transaction involves nodes with unusual connectivity, "
-                "low PageRank, or bridges separate graph communities."
-            )
+            signals.append((graph, f"Suspicious Network (Graph {graph:.2f}): Funds moving between isolated accounts or sinkholes."))
 
-        if not parts:
-            parts.append(
-                "Composite risk index exceeded the top-1% threshold "
-                "across multiple weak signals."
-            )
+        # Fallback if nothing explicitly crossed the high thresholds
+        if not signals:
+            explanations.append("Composite Risk: Flagged by multiple weak risk signals reaching the anomaly threshold.")
+            continue
 
-        explanation = " | ".join(parts)
+        # 🚨 THE TRIAGE LOGIC: Sort by score (highest first) and slice the top N
+        signals.sort(key=lambda x: x[0], reverse=True)
+        top_signals = signals[:max_reasons]
+
+        # Extract just the text from the top signals and join them
+        parts = [text for score, text in top_signals]
+        explanation = " • ".join(parts)
+        
         explanations.append(explanation)
 
     return explanations
