@@ -53,9 +53,9 @@
     <!-- Footer -->
     <div class="px-8 py-6 bg-[#2D2D2D] border-t flex justify-end gap-3">
       <button onclick="closeUpload()" class="px-6 py-2 text-[#777777]">Cancel</button>
-      <button onclick="analyzeCSV()"
-              class="px-8 py-2 bg-[#FF6B35] text-white font-bold rounded-lg shadow-lg">
-        Analyze Transactions
+      <button id="btn-analyze" onclick="analyzeCSV()"
+          class="px-8 py-2 bg-[#FF6B35] text-white font-bold rounded-lg shadow-lg transition-all duration-200">
+      Analyze Transactions
       </button>
     </div>
   </div>
@@ -123,6 +123,14 @@ dropZone.addEventListener("drop", e => {
 
 async function analyzeCSV() {
   if (!selectedFile) { alert("Please upload a CSV file."); return; }
+  
+  // 🚨 1. Grab the button and trigger the visual loading state
+  const btn = document.getElementById("btn-analyze");
+  btn.disabled = true;
+  btn.innerHTML = `<span class="animate-pulse">Analyzing matrix...</span>`;
+  btn.classList.replace("bg-[#FF6B35]", "bg-[#555555]");
+  btn.classList.add("cursor-not-allowed");
+
   const form = new FormData();
   form.append("file", selectedFile);
 
@@ -131,6 +139,8 @@ async function analyzeCSV() {
     const thresholdValue = Number(thresholdRaw);
     if (!Number.isFinite(thresholdValue) || thresholdValue <= 0) {
       alert("Threshold must be a number greater than 0.");
+      // Reset button if validation fails
+      resetAnalyzeButton(btn);
       return;
     }
     form.append("thresholdLimit", String(thresholdValue));
@@ -157,9 +167,22 @@ async function analyzeCSV() {
     await openSession(report.id, true);
     switchView("dashboard");
     closeUpload();
+    
   } catch (err) {
     console.error("Upload error:", err);
     alert("Failed to upload and analyze CSV.");
+  } finally {
+    // 🚨 2. Always reset the button state when finished
+    resetAnalyzeButton(btn);
   }
+}
+
+// Quick helper function to keep the code clean
+function resetAnalyzeButton(btn) {
+  if (!btn) return;
+  btn.disabled = false;
+  btn.innerText = "Analyze Transactions";
+  btn.classList.replace("bg-[#555555]", "bg-[#FF6B35]");
+  btn.classList.remove("cursor-not-allowed");
 }
 </script>

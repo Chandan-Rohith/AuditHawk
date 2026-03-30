@@ -86,7 +86,7 @@ def gql_auth(query: str, variables: dict | None = None) -> dict:
             GRAPHQL_URL,
             json=payload,
             headers=_auth_headers(),
-            timeout=30,
+            timeout=120,
         )
     except http_requests.RequestException as e:
         raise Exception(f"Unable to reach backend at {GRAPHQL_URL}: {e}")
