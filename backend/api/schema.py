@@ -100,6 +100,9 @@ class FlaggedTransactionType(graphene.ObjectType):
     risk_score = graphene.Float()
     decision = graphene.String()
     explanation = graphene.String()  # XAI reasoning
+    # 🚨 ADD THESE TWO LINES:
+    robust_z_score = graphene.Float()
+    is_salami = graphene.Boolean()
 
 
 # ============================================
@@ -148,7 +151,8 @@ class Query(graphene.ObjectType):
             AuditReportType(
                 id=str(r["_id"]),
                 file_name=r["file_name"],
-                uploaded_at=r["uploaded_at"],
+                # 🚨 FIX: Convert native datetime back to string for UI compatibility
+                uploaded_at=r["uploaded_at"].isoformat() if isinstance(r.get("uploaded_at"), datetime) else r.get("uploaded_at", ""),
                 total_transactions=r["total_transactions"],
                 flagged_count=r["flagged_count"],
                 status=r["status"]
@@ -192,7 +196,10 @@ class Query(graphene.ObjectType):
                 amount=txn["amount"],
                 risk_score=txn["risk_score"],
                 decision=txn["decision"],
-                explanation=txn["explanation"]
+                explanation=txn["explanation"],
+                # 🚨 ADD THESE TWO LINES:
+                robust_z_score=txn.get("robust_z_score", 0.0),
+                is_salami=txn.get("is_salami", False)
             )
             for txn in transactions
         ]
@@ -278,11 +285,14 @@ class UploadAuditFile(graphene.Mutation):
 
             def _upload_transaction(session):
                 trusted = get_trusted_vendors(user_id)
-                uploaded_at = datetime.utcnow().isoformat()
+                
+                # 🚨 FIX: Create native datetime for Mongo, string for GraphQL
+                uploaded_at_dt = datetime.utcnow()
+                uploaded_at_str = uploaded_at_dt.isoformat()
 
                 new_report = {
                     "file_name": file_name,
-                    "uploaded_at": uploaded_at,
+                    "uploaded_at": uploaded_at_dt, # Native Datetime
                     "total_transactions": summary['total_transactions'],
                     "flagged_count": 0,
                     "status": "processing",
@@ -300,6 +310,7 @@ class UploadAuditFile(graphene.Mutation):
                             **txn,
                             "report_id": report_id,
                             "user_id": user_id,
+                            "uploaded_at": uploaded_at_dt, # 🚨 NEW: Stamp the row so it can self-destruct
                             "flagged": False,
                             "explanation": "",
                             "risk_score": 0.0,
@@ -315,7 +326,7 @@ class UploadAuditFile(graphene.Mutation):
                         "report_id": report_id,
                         "user_id": user_id,
                         "file_name": file_name,
-                        "uploaded_at": uploaded_at,
+                        "uploaded_at": uploaded_at_dt, # Native Datetime required for TTL!
                         "total_transactions": len(prepared_transactions),
                         "transactions": prepared_transactions,
                     },
@@ -366,7 +377,7 @@ class UploadAuditFile(graphene.Mutation):
                     {
                         "id": report_id,
                         "file_name": file_name,
-                        "uploaded_at": uploaded_at,
+                        "uploaded_at": uploaded_at_str, # String for the frontend
                         "total_transactions": summary['total_transactions'],
                         "flagged_count": flagged_count,
                         "status": "completed",

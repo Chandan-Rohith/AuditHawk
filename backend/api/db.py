@@ -38,11 +38,24 @@ def ensure_indexes() -> None:
         [("user_id", ASCENDING), ("flagged", ASCENDING)],
         name="idx_txn_user_flagged",
     )
+    transactions_col.create_index(
+        [("uploaded_at", ASCENDING)],
+        expireAfterSeconds=7776000,
+        name="idx_txn_ttl_90_days"
+    )
 
     transaction_batch_col.create_index(
         [("report_id", ASCENDING), ("user_id", ASCENDING)],
         unique=True,
         name="idx_batch_report_user_unique",
+    )
+
+    # 🚨 ADD THIS NEW BLOCK: Enterprise TTL Index
+    # Automatically drops raw batch data 90 days (7,776,000 seconds) after upload
+    transaction_batch_col.create_index(
+        [("uploaded_at", ASCENDING)],
+        expireAfterSeconds=7776000,
+        name="idx_batch_ttl_90_days"
     )
 
     flagged_transactions_col.create_index(

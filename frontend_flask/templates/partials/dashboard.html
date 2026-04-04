@@ -1,6 +1,4 @@
-<!-- ═══════════════════ DASHBOARD VIEW ═══════════════════ -->
 <div id="view-dashboard">
-  <!-- empty state (shown when no transactions) -->
   <div id="dash-empty">
     <div class="mb-8">
       <h2 class="text-3xl font-extrabold">Dashboard</h2>
@@ -41,7 +39,6 @@
     </div>
   </div>
 
-  <!-- filled state (shown after analysis) -->
   <div id="dash-filled" class="hidden space-y-8">
     <div class="flex items-center justify-between">
       <div>
@@ -54,7 +51,6 @@
       </button>
     </div>
 
-    <!-- Metrics -->
     <div class="grid gap-6 md:grid-cols-3">
       <div class="bg-[#212121] p-6 rounded-xl border shadow-sm">
         <p class="text-xs font-bold text-[#777777] uppercase mb-1">Total Transactions</p>
@@ -70,7 +66,6 @@
       </div>
     </div>
 
-    <!-- Chart + Summary -->
     <div class="grid gap-6 lg:grid-cols-3">
       <div class="bg-[#212121] p-6 rounded-xl border shadow-sm">
         <h3 class="mb-4 font-bold">Transaction Integrity</h3>
@@ -96,7 +91,6 @@
       </div>
     </div>
 
-    <!-- Fraud Table -->
     <div class="bg-[#212121] rounded-xl border shadow-sm overflow-hidden">
       <div class="px-6 py-4 border-b bg-[#2D2D2D] flex justify-between">
         <h3 class="font-bold">Fraud Review Queue</h3>
@@ -139,7 +133,6 @@ async function loadHistoricalReport(reportId) {
       frauds = result.frauds || [];
       activeReportId = reportId; 
 
-      // 🚨 ADD THIS LINE: Lock the dashboard into History Mode
       window.isHistoryMode = true; 
 
       renderDashboard();
@@ -148,6 +141,7 @@ async function loadHistoricalReport(reportId) {
       console.error("❌ Network error loading historical report:", error);
   }
 }
+
 function escapeHtml(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -163,9 +157,7 @@ function escapeAttr(value) {
 
 function renderDashboard() {
   const total = transactions.length;
-  
   const fraudCount = frauds.filter(f => f.status !== "rejected").length;
-  
   const currentRiskScore = total > 0 ? Math.round((fraudCount / total) * 100) : 0;
 
   const dashEmpty = document.getElementById("dash-empty");
@@ -183,7 +175,7 @@ function renderDashboard() {
   // Update the DOM with the real-time metrics
   document.getElementById("metric-total").textContent = total;
   document.getElementById("metric-fraud").textContent = fraudCount;
-  document.getElementById("metric-risk").textContent = currentRiskScore + "%"; // <--- Now uses dynamic score
+  document.getElementById("metric-risk").textContent = currentRiskScore + "%"; 
 
   // avg flag value
   const avgFlag = fraudCount ? Math.round(frauds.filter(f => f.status !== "rejected").reduce((s, f) => s + f.amount, 0) / fraudCount) : 0;
@@ -198,8 +190,8 @@ function renderDashboard() {
 
 function renderChart(legit, flagged) {
   const ctx = document.getElementById("doughnut-chart").getContext("2d");
-  if (doughnutChart) doughnutChart.destroy();
-  doughnutChart = new Chart(ctx, {
+  if (window.doughnutChart) window.doughnutChart.destroy();
+  window.doughnutChart = new Chart(ctx, {
     type: "doughnut",
     data: {
       labels: ["Legitimate", "Flagged"],
@@ -209,19 +201,16 @@ function renderChart(legit, flagged) {
 }
 
 function openUpload() {
-    // 🚨 ADD THIS LINE: Unlock the dashboard for live mode
     window.isHistoryMode = false; 
-    
-    // ... the rest of your existing openUpload code ...
+    // Handle opening upload here
 }
+
 function renderFraudTable() {
   const thead = document.getElementById("fraud-thead");
   const tbody = document.getElementById("fraud-tbody");
   
-  // 🚨 1. Determine if we are in History Mode (Read-Only)
-const isHistoryView = window.isHistoryMode === true;
+  const isHistoryView = window.isHistoryMode === true;
 
-  // Calculate how many items actually need review
   const pendingCount = frauds.filter(f => f.status !== "rejected" && f.status !== "approved").length;
   document.getElementById("fraud-count-label").textContent = pendingCount + " Items Pending";
 
@@ -250,7 +239,7 @@ const isHistoryView = window.isHistoryMode === true;
 
   const isMeaningful = (value) => {
     const text = String(value || "").trim().toLowerCase();
-    return text && !["—", "n/a", "na", "unknown", "unknown vendor", "null", "none", "-"] .includes(text);
+    return text && !["—", "n/a", "na", "unknown", "unknown vendor", "null", "none", "-"].includes(text);
   };
 
   const optionalColumns = [
@@ -287,9 +276,7 @@ const isHistoryView = window.isHistoryMode === true;
 
     let actionHTML = "";
 
-    // 🚨 2. Implement the Read-Only logic here
     if (isHistoryView) {
-        // History Mode: Immutable Badges Only
         if (isPending) {
             actionHTML = `<span class="text-xs font-bold tracking-wider uppercase text-amber-500">Unresolved</span>`;
         } else if (isApproved) {
@@ -298,7 +285,6 @@ const isHistoryView = window.isHistoryMode === true;
             actionHTML = `<span class="text-xs font-bold text-[#555555] uppercase tracking-wider">Dismissed</span>`;
         }
     } else {
-        // Active Upload Mode: Full Interactive Buttons
         if (isPending) {
             actionHTML = `
                 <button data-tx-id="${actionId}" data-action="approved"
@@ -338,10 +324,8 @@ const isHistoryView = window.isHistoryMode === true;
     </tr>`;
   }).join("");
 
-  // 🚨 3. Ensure the event listener for the buttons is bound correctly
   if (!tbody.dataset.boundActions) {
     tbody.addEventListener("click", (event) => {
-      // Only listen for button clicks (ignores the static text badges in History mode)
       const button = event.target.closest("button[data-action][data-tx-id]");
       if (!button) {
         return;
@@ -356,6 +340,7 @@ const isHistoryView = window.isHistoryMode === true;
     tbody.dataset.boundActions = "true";
   }
 }
+
 async function fraudAction(transactionId, decision) {
   if (!activeReportId) {
     alert("No active report selected.");
